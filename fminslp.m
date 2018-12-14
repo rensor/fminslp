@@ -641,6 +641,7 @@ classdef fminslp
         % Second constraint
         dg(2,1) = 1;
         dg(2,2) = 1;
+        dg = dg';
       end
     end
     
