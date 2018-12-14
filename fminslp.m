@@ -180,12 +180,8 @@ classdef fminslp
       this.initialized = true;
       
       % initialize options structure
-      if isa(varargin{1},'struct')
-         %  We have most likely been passed an options structure
-         this.options = fminslp.optimset(varargin{1});
-      else
-        this.options = fminslp.optimset(varargin{:});
-      end
+      this.options = fminslp.slpoptions(varargin);
+      
       % Initialize global convergence filter
       this.filter = fminslp.initializeGlobalConvergenceFilter(this.options);
       
@@ -429,9 +425,9 @@ classdef fminslp
             g = this.nonlcon(x);
             gmerit = g(:)-y;
           case 2
-            [~,dg] = this.nonlcon(x);
+            [~,~,dg] = this.nonlcon(x);
             dgmerit = zeros(this.nGnl,this.nDV+this.nGnl);
-            dgmerit(:,1:this.nDV) = dg;
+            dgmerit(:,1:this.nDV) = dg';
             dgmerit(:,this.nDV+1:end) = -1.0*eye(this.nGnl);
         end
       end
@@ -449,9 +445,10 @@ classdef fminslp
     
   end
   
-  methods (Static = true)
+  methods(Static = true, Hidden = true)
+    
     % options initialization
-    function options = optimset(varargin)
+    function options = slpoptions(input)
       p = inputParser;
       p.CaseSensitive = false;
       % Helper functions for input parser
@@ -480,22 +477,15 @@ classdef fminslp
       p.addParameter('MaxInfeasibility',inf,  @(x) checkEmptyOrNumericPositive(x));
       
       % pars input
-      if (nargin < 1) || isempty(varargin)
+      if isempty(input)
         parse(p);
       else
-        if isa(varargin{1},'struct')
-          parse(p,varargin{1});
-        elseif isa(varargin,'cell')
-            parse(p,varargin{:});
-        end
+        parse(p,input{:});
       end
       
       options = p.Results;
       
     end
-  end
-  
-  methods(Static = true, Hidden = true)
     
     function filter = initializeGlobalConvergenceFilter(options)
       % SLP Filter settings
@@ -511,16 +501,9 @@ classdef fminslp
       filter.f = 1.0e30; % Current objective point, large initialization
       filter.initF = 0.0; % Initial objective function value
 
-      
       % Initial values in SLP filter
-      if options.MaxInfeasibility==inf
-        filter.vals(1,1) = inf;  % Maximum infeasibility
-        filter.vals(1,2) = inf;  % Related obj value
-      else
-        filter.vals(1,1) = options.MaxInfeasibility;  % Maximum infeasibility
-        filter.vals(1,2) = -inf;  % Related obj value
-      end
-      
+      filter.vals(1,1) = inf;  % Maximum infeasibility
+      filter.vals(1,2) = inf;  % Related obj value
     end
     
     % SLP Global Convergence filter function
@@ -636,18 +619,21 @@ classdef fminslp
       end
     end
     
-    function [g,dg] = testNlCon(x)
+    function [g,ceq,dg,dceq] = testNlCon(x)
       % Rosenbrock function
       % Constraints
       g = [];
       dg = [];
+      ceq = [];
+      dceq = [];
       switch nargout
-        case 1
+        case {1,2}
           g = zeros(2,1);
           g(1,1) = (x(1)-1)^3-x(2) + 1;
           g(2,1) = x(1) + x(2) - 2;
-        case 2
-          dg = zeros(2,2);
+          ceq = [];
+        case {3,4}
+        dg = zeros(2,2);
         % First constraint
         dg(1,1) = 3*x(1)^2-6*x(1)+3;
         dg(1,2) = -1;
@@ -663,8 +649,7 @@ classdef fminslp
       g = @(x) fminslp.testNlCon(x);
       Atest = [];
       btest = [];
-%       options = fminslp.optimset('MaxInfeasibility',1e-3,'MoveLimit',0.01);
-      testProp = fminslp(obj,[0.6;0.6],Atest,btest,[],[],[-3;-3],[3;3],g,'MaxInfeasibility',1e-3,'MoveLimit',0.01);
+      testProp = fminslp(obj,[0.6;0.6],Atest,btest,[],[],[-3;-3],[3;3],g,'MoveLimit',0.01);
       [x,fval,exitflag,output] = testProp.solve();
       
       figure;
