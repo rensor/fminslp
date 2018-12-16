@@ -8,7 +8,7 @@ classdef fminslp
     options = [];
   end
   
-  properties(SetAccess = private, Hidden = true)
+  properties(SetAccess = public, Hidden = true)
     
     % Inputs
     fun = [];
@@ -438,6 +438,38 @@ classdef fminslp
         case 'linprog'
           linprogOptions = optimoptions('linprog','Algorithm','dual-simplex','Display','off');
           [x,~, exitflag]= linprog(df,A,b,Aeq,beq,lb,ub,x,linprogOptions);
+          
+         case 'glpk' % Octave lp solver
+          
+          % Define constraints
+          if ~isempty(A) && ~isempty(Aeq)
+            nleq = size(A,1);
+            neq = size(Aeq,1);
+            ctype = char(nleq+neq,1);
+            ctype(1:nleq) = 'U';
+            ctype(nleq+1:end) = 'S';
+            A = [A;Aeq];
+            b = [b;beq];
+          elseif ~isempty(A)
+            nleq = size(A,1);
+            ctype = char(nleq,1);
+            ctype(1:nleq) = 'U';
+          elseif ~isempty(Aeq)
+            neq = size(Aeq,1);
+            ctype = char(neq,1);
+            ctype(1:neq) = 'S';
+            A = Aeq;
+            b = beq;
+          else
+            ctype = [];
+          end
+          
+          % Define variable type
+          ndv = numel(df);
+          vartype = char(ndv,1);
+          vartype(1:ndv) = 'C';
+          
+          [x, ~, exitflag] = glpk (df, A, b, lb, ub, ctype, vartype);
         otherwise
           error([this.name,' Unknown LP solver specified: ',this.options.Solver])
       end
@@ -650,13 +682,12 @@ classdef fminslp
       g = @(x) fminslp.testNlCon(x);
       Atest = [];
       btest = [];
-      testProp = fminslp(obj,[0.6;0.6],Atest,btest,[],[],[-3;-3],[3;3],g,'MoveLimit',0.01);
+      testProp = fminslp(obj,[0.6;0.6],Atest,btest,[],[],[-3;-3],[3;3],g,'MoveLimit',0.01,'solver','glpk');
       [x,fval,exitflag,output] = testProp.solve();
       
       figure;
-      yyaxis left
       plot([1:output.nIter],output.f)
-      yyaxis right
+      figure;
       plot([1:output.nIter],output.xnorm)
     end
   end
