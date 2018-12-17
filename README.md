@@ -17,6 +17,8 @@ The overall framework is based on an implementation developed during my Ph.d., s
 
 Thickness filters for gradient based multi-material and thickness optimization of laminated composite structures
 R Sørensen, E Lund, Structural and Multidisciplinary Optimization 52 (2), 227-250
+https://doi.org/10.1007/s00158-015-1230-3 
+Please refere to this paper when citing the fminslp algorithm.
 
 usage: 
 
@@ -62,4 +64,4 @@ options = fminslp.optimset('MoveLimit',0.01); % Modify individual options, the r
 Do to:
   -Make plot functions for post processing
   -Enable display output
-  -More documentation on usage
+  -Add example file
