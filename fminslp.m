@@ -1,10 +1,10 @@
-classdef fminslp
+classdef fminslp < handle
   
   properties(Constant)
     name = 'fminslp';
   end
 
-  properties(SetAccess = public)
+  properties
     options = [];
   end
   
@@ -30,11 +30,13 @@ classdef fminslp
     % Global convergence filter 
     filter = struct();
     
+    % Iteration history
+    history = struct();
+    
     % Switch
     initialized = false;
     
-    % Iteration history
-    history = struct();
+    
   end
   
   methods
@@ -396,6 +398,37 @@ classdef fminslp
       
     end % Solve function
     
+    function postprocess(this)
+      % Save current "default" window style
+      defaultWindowStyle=get(0,'DefaultFigureWindowStyle');
+      % Set new window style to docked
+      set(0,'DefaultFigureWindowStyle','docked')
+      
+      % Make iteration vector
+      ivec = 1:this.history.nIter;
+      
+      figure();
+      title('Objective')
+      plot(ivec,this.history.f)
+      xlabel('Iteration Number')
+      ylabel('Objective value')
+      
+      figure();
+      title('Design change norm')
+      plot(ivec,this.history.xnorm)
+      xlabel('Iteration Number')
+      yl=ylabel('|x_i-x_(i-1)| value');
+      set(yl,'Interpreter','none')
+      
+      figure();
+      title('Maximum infeasibility')
+      plot(ivec,this.history.maxInf)
+      xlabel('Iteration Number')
+      ylabel('g(x)<=0')
+      
+      % Restore default window style
+      set(0,'DefaultFigureWindowStyle',defaultWindowStyle)
+    end
     
   end % methods
   
@@ -682,13 +715,9 @@ classdef fminslp
       g = @(x) fminslp.testNlCon(x);
       Atest = [];
       btest = [];
-      testProp = fminslp(obj,[0.6;0.6],Atest,btest,[],[],[-3;-3],[3;3],g,'MoveLimit',0.01,'solver','glpk');
+      testProp = fminslp(obj,[0.6;0.6],Atest,btest,[],[],[-3;-3],[3;3],g,'MoveLimit',0.01,'solver','linprog');
       [x,fval,exitflag,output] = testProp.solve();
-      
-      figure;
-      plot([1:output.nIter],output.f)
-      figure;
-      plot([1:output.nIter],output.xnorm)
+      testProp.postprocess();
     end
   end
   
