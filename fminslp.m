@@ -219,14 +219,14 @@ classdef fminslp < handle
       
       % evaluate initial non-linear in-equality constraints
       if ~isempty(this.nonlcon)
-        gnl = this.nonlcon(x);
+        [gnl, gnleq] = this.nonlcon(x);
         % Determine number of constraints
-        this.nGnl = numel(gnl);
+        this.nGnl = numel(gnl) + numel(gnleq)*2;
         % Initialize slag variables to close the infeasibility gap
-        y = max(gnl(:),0);
+        y = max([gnl(:);gnleq(:);-gnleq(:)],0);
         % Set upper and lower bounds for slag variables
         ylb = zeros(this.nGnl,1);
-        yub = repmat(max([gnl(:);1])*1e6,[this.nGnl,1]);
+        yub = repmat(max([gnl(:);gnleq(:);-gnleq(:);1])*1e6,[this.nGnl,1]);
         % Allocate iteration history for maximum infeasibility
         this.history.maxInf = zeros(this.options.MaxIterations,1);
       else
@@ -455,12 +455,12 @@ classdef fminslp < handle
       if ~isempty(this.nonlcon)
         switch nargout
           case 1
-            g = this.nonlcon(x);
-            gmerit = g(:)-y;
+            [gn, gneq] = this.nonlcon(x);
+            gmerit = [gn(:);gneq(:);-gneq(:)]-y;
           case 2
-            [~,~,dg] = this.nonlcon(x);
+            [~,~,dgnl,dgneq] = this.nonlcon(x);
             dgmerit = zeros(this.nGnl,this.nDV+this.nGnl);
-            dgmerit(:,1:this.nDV) = dg';
+            dgmerit(:,1:this.nDV) = [dgnl';dgneq';-dgneq'];
             dgmerit(:,this.nDV+1:end) = -1.0*eye(this.nGnl);
         end
       end
@@ -468,6 +468,7 @@ classdef fminslp < handle
     
     function [x,exitflag] = lpSolver(this,df,A,b,Aeq,beq,lb,ub,x)
       switch this.options.Solver
+        
         case 'linprog'
           linprogOptions = optimoptions('linprog','Algorithm','dual-simplex','Display','off');
           [x,~, exitflag]= linprog(df,A,b,Aeq,beq,lb,ub,x,linprogOptions);
@@ -533,7 +534,7 @@ classdef fminslp < handle
       
       % Move-limit parameters
       p.addParameter('MoveLimitMethod','adaptive',  @(x) checkEmpetyOrChar(x));
-      p.addParameter('MoveLimit',0.1,  @(x) checkEmptyOrNumericPositive(x));
+      p.addParameter('MoveLimit',0.01,  @(x) checkEmptyOrNumericPositive(x));
       p.addParameter('MoveLimitExpand',1.1,  @(x) checkEmptyOrNumericPositive(x));
       p.addParameter('MoveLimitReduce',0.5,  @(x) checkEmptyOrNumericPositive(x));
       
