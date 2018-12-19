@@ -1,5 +1,5 @@
 # fminslp
-matlab based optimizer framework for Sequential Linear Programming (SLP) coupled with a global convergence filter, and an adaptive move-limit strategy. The algorithm can handle linear equality, linear in-equality and non-linear in-equality constraints. A Merit function approach is applied to ensure unconditional feasibility of the linearized sub problem.
+matlab based optimizer framework for Sequential Linear Programming (SLP) coupled with a global convergence filter, and an adaptive move-limit strategy. The algorithm can handle linear equality, linear in-equality, non-linear in-equality, and non-linear equality constraints. A Merit function approach is applied to ensure unconditional feasibility of the linearized sub problem.
 
 The global convergence filter monitors progression of the penalized objective function (the merit function), and the associated non-linear constraints. Based on the response, the filter algorithm adjusts the move-limits to ensure stable convergence. The convergence filter is based on the following papers by Chin CM, Fletcher R (1999) and Fletcher R, Leyffer S, Toint PL (1998).
 
@@ -29,7 +29,7 @@ myProblem = fminslp(fun,x0,A,b,Aeq,beq,lb,ub,nonlcon,'MoveLimit',0.01,'MaxIterat
 [x,fval,exitflag,output] = myProblem.solve(); % Solve problem
 
 available options:
-options = fminslp.optimset(); % Initialize values to default
+options = fminslp.slpoptions(); % Initialize values to default
 
                     Algorithm: 'merit'
                       Display: 'off'
@@ -45,7 +45,7 @@ options = fminslp.optimset(); % Initialize values to default
                        Solver: 'linprog'
                 StepTolerance: 1.0000e-10
 
-options = fminslp.optimset('MoveLimit',0.01); % Modify individual options, the rest are initialized to default values
+options = fminslp.slpoptions('MoveLimit',0.01); % Modify individual options, the rest are initialized to default values
 
                     Algorithm: 'merit'
                       Display: 'off'
@@ -62,6 +62,4 @@ options = fminslp.optimset('MoveLimit',0.01); % Modify individual options, the r
                 StepTolerance: 1.0000e-10
                 
 Do to:
-  -Make plot functions for post processing
   -Enable display output
-  -Add example file
