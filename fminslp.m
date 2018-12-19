@@ -408,23 +408,23 @@ classdef fminslp < handle
       ivec = 1:this.history.nIter;
       
       figure();
-      title('Objective')
       plot(ivec,this.history.f)
+      title('Objective')
       xlabel('Iteration Number')
       ylabel('Objective value')
       
       figure();
-      title('Design change norm')
       plot(ivec,this.history.xnorm)
+      title('Design change norm')
       xlabel('Iteration Number')
       yl=ylabel('|x_i-x_(i-1)| value');
       set(yl,'Interpreter','none')
       
       figure();
-      title('Maximum infeasibility')
       plot(ivec,this.history.maxInf)
+      title('Maximum infeasibility')
       xlabel('Iteration Number')
-      ylabel('g(x)<=0')
+      ylabel('-')
       
       % Restore default window style
       set(0,'DefaultFigureWindowStyle',defaultWindowStyle)
@@ -534,7 +534,7 @@ classdef fminslp < handle
       
       % Move-limit parameters
       p.addParameter('MoveLimitMethod','adaptive',  @(x) checkEmpetyOrChar(x));
-      p.addParameter('MoveLimit',0.01,  @(x) checkEmptyOrNumericPositive(x));
+      p.addParameter('MoveLimit',0.1,  @(x) checkEmptyOrNumericPositive(x));
       p.addParameter('MoveLimitExpand',1.1,  @(x) checkEmptyOrNumericPositive(x));
       p.addParameter('MoveLimitReduce',0.5,  @(x) checkEmptyOrNumericPositive(x));
       
@@ -671,55 +671,6 @@ classdef fminslp < handle
       end
     end
     
-    function [f,df] = testObj(x)
-      % Rosenbrock function
-      % Global optimum f(1.0,1.0)=0
-      f = [];
-      df = [];
-      switch nargout
-        case 1
-          f = (1-x(1))^2 + 100*(x(2)-x(1)^2)^2;
-        case 2
-          df(1,1) = 400*x(1)^3 - 2*x(1)*(200*x(2)-1)-2;
-          df(2,1) = 200*x(2)-200*x(1);
-      end
-    end
-    
-    function [g,ceq,dg,dceq] = testNlCon(x)
-      % Rosenbrock function
-      % Constraints
-      g = [];
-      dg = [];
-      ceq = [];
-      dceq = [];
-      switch nargout
-        case {1,2}
-          g = zeros(2,1);
-          g(1,1) = (x(1)-1)^3-x(2) + 1;
-          g(2,1) = x(1) + x(2) - 2;
-          ceq = [];
-        case {3,4}
-        dg = zeros(2,2);
-        % First constraint
-        dg(1,1) = 3*x(1)^2-6*x(1)+3;
-        dg(1,2) = -1;
-        
-        % Second constraint
-        dg(2,1) = 1;
-        dg(2,2) = 1;
-        dg = dg';
-      end
-    end
-    
-    function [x,fval,exitflag,output] = test()
-      obj = @(x) fminslp.testObj(x);
-      g = @(x) fminslp.testNlCon(x);
-      Atest = [];
-      btest = [];
-      testProp = fminslp(obj,[0.6;0.6],Atest,btest,[],[],[-3;-3],[3;3],g,'MoveLimit',0.01,'solver','linprog');
-      [x,fval,exitflag,output] = testProp.solve();
-      testProp.postprocess();
-    end
   end
   
 end
