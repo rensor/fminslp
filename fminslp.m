@@ -194,6 +194,13 @@ classdef fminslp < handle
       % Assume the code failed
       exitflag = -1;
       
+      if strcmpi(this.options.Display,'iter')
+        fprintf('*********************************************************************************************************')
+        fprintf('\n \t \t \t \t \t \t fminslp optimizer with global convergence filter')
+        fprintf('\n*********************************************************************************************************\n')
+        fprintf('\t %10s \t\t %10s \t \t %10s \t \t   %10s \t \t   %10s \n','f(x,y)','Max inf', 'Norm dx', 'nFeval','IterNo');
+      end
+        
       % Allocate iteration history array
       % Store function values, maximum infeasibility from non-linear
       % constraints, norm of design variable change
@@ -246,7 +253,7 @@ classdef fminslp < handle
       fOld = fmerit;
       
       % Set counters and switches
-      nFval = 1;
+      nFeval = 1;
       iterNo = 0;
       optimize = true;
       % Main loop
@@ -322,7 +329,7 @@ classdef fminslp < handle
           optimalityNorm = norm(dfmerit(1:end-this.nGnl)) + norm(yNew);
           
           % evaluate new design
-          nFval = nFval + 1;
+          nFeval = nFeval + 1;
           fmerit = this.getMeritObj(xNew,yNew);
           gmerit = this.getMeritConstraints(xNew,yNew);
           % Determine delta for merit function
@@ -364,7 +371,7 @@ classdef fminslp < handle
           end
           
           % check for convergence
-          if (optimalityNorm <= this.options.OptimalityTolerance) || (deltanorm <=this.options.StepTolerance) || (iterNo >= this.options.MaxIterations) || (nFval >= this.options.MaxFunctionEvaluations)
+          if (optimalityNorm <= this.options.OptimalityTolerance) || (deltanorm <=this.options.StepTolerance) || (iterNo >= this.options.MaxIterations) || (nFeval >= this.options.MaxFunctionEvaluations)
             optimize = false;
             backtrack = false;
             exitflag = 1;
@@ -388,7 +395,12 @@ classdef fminslp < handle
         this.history.xnorm(iterNo) = deltanorm;
         this.history.maxInf(iterNo) = this.filter.h;
         this.history.nIter = iterNo;
-        this.history.nFeval = nFval;
+        this.history.nFeval = nFeval;
+        
+        if strcmpi(this.options.Display,'iter')
+            fprintf('\t %6.4e \t \t %6.4e \t \t %6.4e \t \t %10i \t \t %10i \n' ,fmerit,this.filter.h, deltanorm, nFeval ,iterNo);
+        end
+        
       end % Main loop
       
       this.history.f(iterNo+1:end)=[];
@@ -407,7 +419,7 @@ classdef fminslp < handle
       % Make iteration vector
       ivec = 1:this.history.nIter;
       
-      figure();
+      f1=figure();
       plot(ivec,this.history.f)
       title('Objective')
       xlabel('Iteration Number')
@@ -417,7 +429,7 @@ classdef fminslp < handle
       plot(ivec,this.history.xnorm)
       title('Design change norm')
       xlabel('Iteration Number')
-      yl=ylabel('|x_i-x_(i-1)| value');
+      yl=ylabel('Norm dx');
       set(yl,'Interpreter','none')
       
       figure();
@@ -426,6 +438,8 @@ classdef fminslp < handle
       xlabel('Iteration Number')
       ylabel('-')
       
+      % Jump back to figure 1
+      figure(f1)
       % Restore default window style
       set(0,'DefaultFigureWindowStyle',defaultWindowStyle)
     end
@@ -467,9 +481,10 @@ classdef fminslp < handle
     end
     
     function [x,exitflag] = lpSolver(this,df,A,b,Aeq,beq,lb,ub,x)
+      % Here you can add your own solvers
       switch this.options.Solver
         
-        case 'linprog'
+        case 'linprog' % MathWorks solver
           linprogOptions = optimoptions('linprog','Algorithm','dual-simplex','Display','off');
           [x,~, exitflag]= linprog(df,A,b,Aeq,beq,lb,ub,x,linprogOptions);
           
@@ -515,6 +530,7 @@ classdef fminslp < handle
     
     % options initialization
     function options = slpoptions(input)
+      % Here you can add new options if needed
       p = inputParser;
       p.CaseSensitive = false;
       % Helper functions for input parser
@@ -543,7 +559,7 @@ classdef fminslp < handle
       p.addParameter('MaxInfeasibility',inf,  @(x) checkEmptyOrNumericPositive(x));
       
       % pars input
-      if isempty(input)
+      if nargin < 1 || isempty(input)
         parse(p);
       else
         parse(p,input{:});
@@ -568,8 +584,21 @@ classdef fminslp < handle
       filter.initF = 0.0; % Initial objective function value
 
       % Initial values in SLP filter
-      filter.vals(1,1) = inf;  % Maximum infeasibility
-      filter.vals(1,2) = inf;  % Related obj value
+      if options.MaxInfeasibility < inf
+        % Here MaxInfeasibility sets the maximum acceptable infeasibility
+        % wrt., the global constraints (merit constrints)
+        % Low values e.g., 1e-10 can potentially slow the convergence rate
+        % and/or result in the optimizer getting trapped in a local minimum
+        
+        filter.vals(1,1) = options.MaxInfeasibility; % Maximum infeasibility
+        filter.vals(1,2) = -inf;  % Related obj value
+      else
+        % Here, the convergence filter will steadily add new points to the
+        % filter to ensure stable convergence
+        
+        filter.vals(1,1) = inf;  % Maximum infeasibility
+        filter.vals(1,2) = inf;  % Related obj value
+      end
     end
     
     % SLP Global Convergence filter function

@@ -5,15 +5,15 @@ function [x,fval,exitflag,output,ex] = examples(No)
       % exmple 1
       %	Minimize	f(x1,x2) = -2x1 -x2
       %
-      %	S.t.  g1(x1,x2) = x1^2 + x2^2 <= 25   (nonlinear inequality constraint)
-      %         g2(x1,x2) = x1^2 - x2^2 <= 7    (nonlinear inequality constraint)
-      %         0 <= x1 <= 10;  0 <= x2 <= 10   (box constraints)
+      %	S.t.  g1(x1,x2) = x1^2 + x2^2 <= 25       (nonlinear inequality constraint)
+      %         g2(x1,x2) = x1^2 - x2^2 <= 7      (nonlinear inequality constraint)
+      %         0 <= x1 <= 10;  0 <= x2 <= 10     (box constraints)
       %
-      %   Starting point: (x1,x2) = (1,1) (a feasible point)
+      %   Starting point: (x1,x2) = (1,1)         (a feasible point)
       x0 = [1;1];
       lb = [0;0];
       ub = [7;10];
-      ex = fminslp(@f1,x0,[],[],[],[],lb,ub,@g1);
+      ex = fminslp(@f1,x0,[],[],[],[],lb,ub,@g1,'display','iter');
       [x,fval,exitflag,output] = ex.solve;
       ex.postprocess;
     
@@ -29,7 +29,7 @@ function [x,fval,exitflag,output,ex] = examples(No)
       x0 = [sqrt(2);0];
       lb = [0;0];
       ub = [4;4];
-      ex = fminslp(@f2,x0,[],[],[],[],lb,ub,@g2);
+      ex = fminslp(@f2,x0,[],[],[],[],lb,ub,@g2,'display','iter');
       [x,fval,exitflag,output] = ex.solve;
       ex.postprocess;
     case 3
@@ -37,30 +37,30 @@ function [x,fval,exitflag,output,ex] = examples(No)
       %
       %	Minimize	f(x1,x2) = (x1-10)^3 + (x2-20)^3
       %
-      %	S.t.  g1(x1,x2) = -(x1-5)^2 -(x2-5)^2 <= -100  (nonlinear inequality constraint)
-      %         g2(x1,x2) = (x1-6)^2 + (x2-5)^2 <= 82.81 (nonlinear inequality constraint)
-      %         13 <= x1 <= 100;  0 <= x2 <= 100         (box constraints)
+      %	S.t.  g1(x1,x2) = -(x1-5)^2 -(x2-5)^2 <= -100     (nonlinear inequality constraint)
+      %         g2(x1,x2) = (x1-6)^2 + (x2-5)^2 <= 82.81  (nonlinear inequality constraint)
+      %         13 <= x1 <= 100;  0 <= x2 <= 100          (box constraints)
       %
-      %   Starting point: (x1,x2) = (20,5) (a infeasible point) 
+      %   Starting point: (x1,x2) = (20,5)                (a infeasible point) 
       x0 = [13;5];
       lb = [13;0];
       ub = [100;100];
-      ex = fminslp(@f3,x0,[],[],[],[],lb,ub,@g3);
+      ex = fminslp(@f3,x0,[],[],[],[],lb,ub,@g3,'display','iter');
       [x,fval,exitflag,output] = ex.solve;
       ex.postprocess;
       
     case 4
       %	Minimize	max (f1(x1,x2) = 7 - 2*x1 + 2*x2; f2(x1,x2) = 5 - x1 + 3*x2)
       %
-      %	S.t.  g1(x1,x2) = x1^2 + x2^2 <= 25 (nonlinear inequality constraint)
-      %         g2(x1,x2) = x1^2 - x2^2 <= 7  (nonlinear inequality constraint)
-      %         0 <= x1 <= 10;  0 <= x2 <= 10 (box constraints)
+      %	S.t.  g1(x1,x2) = x1^2 + x2^2 <= 25     (nonlinear inequality constraint)
+      %         g2(x1,x2) = x1^2 - x2^2 <= 7    (nonlinear inequality constraint)
+      %         0 <= x1 <= 10;  0 <= x2 <= 10   (box constraints)
       %
-      %   Starting point: (x1,x2) = (1,1) (a feasible point) 
+      %   Starting point: (x1,x2) = (1,1)       (a feasible point) 
       x0 = [1;1;10];
       lb = [0;10;0];
       ub = [0;10;1e6];
-      ex = fminslp(@f4,x0,[],[],[],[],lb,ub,@g4);
+      ex = fminslp(@f4,x0,[],[],[],[],lb,ub,@g4,'display','iter');
       [x,fval,exitflag,output] = ex.solve;
       ex.postprocess;
   end
