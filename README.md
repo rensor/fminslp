@@ -33,7 +33,8 @@ myProblem = fminslp(fun,x0,A,b,Aeq,beq,lb,ub,nonlcon,'MoveLimit',0.01,'MaxIterat
 
 Available options:
 
-% Initialize values to default
+Initialize values to default
+
 options = fminslp.slpoptions();
 
                     Algorithm: 'merit'
@@ -50,8 +51,10 @@ options = fminslp.slpoptions();
                        Solver: 'linprog'
                 StepTolerance: 1.0000e-10
                 
-% Modify individual options, the rest are initialized to default values
+Modify individual options, the rest are initialized to default values
+
 options = fminslp.slpoptions('MoveLimit',0.01); 
+
                     Algorithm: 'merit'
                       Display: 'off'
     InfeasibilityPenalization: 1000
