@@ -1,7 +1,7 @@
 # fminslp
 Matlab based optimizer framework for Sequential Linear Programming (SLP) coupled with a global convergence filter and an adaptive move-limit strategy. The algorithm can handle linear equality, linear in-equality, non-linear in-equality, and non-linear equality constraints. A merit function approach ensures unconditional feasibility of the linearized sub problem. Here, the user can specify two algorithms/apparoches to ensure feasibility. Default is the Merit approach presented in [1]. Alternativly, the Augmented Lagrange method is also available. This method updates the penalty parameters/Lagrange multipliers in each iteration, see [2] for details. The final Lagrange multipliers are available for the user to analyze. 
 
-The global convergence filter monitors progression of the penalized objective function (the merit function), and the associated non-linear constraints. Based on the response, the filter algorithm adjusts the move-limits to ensure stable convergence. The convergence filter is based [3] by Chin CM, Fletcher R (1999) and [4] Fletcher R, Leyffer S, Toint PL (1998).
+The global convergence filter monitors progression of the penalized objective function (the merit function), and the associated non-linear constraints. Based on the response, the filter algorithm adjusts the move-limits to ensure stable convergence. The convergence filter is based [3] and [4]
 
 The adaptive move-limit strategy controls the box-constraints (upper and lower bounds for the design variables) and is based on the work by professor Erik Lund from Aalborg University.
 
