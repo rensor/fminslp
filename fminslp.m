@@ -26,6 +26,7 @@ classdef fminslp < handle
     f0 = []; % Initial, unpeanalized objective function value
     nGnl = []; % number of non-linear inequality constraints
     aFac = []; % Scaling parameter for merit function
+    lambda = []; % Lagrange variables for "Augmented Lagrange (AL) method"
     
     % Global convergence filter 
     filter = struct();
@@ -178,15 +179,14 @@ classdef fminslp < handle
         this.nDV = size(this.Aeq,2);
       end
       
-      % We made it this far
-      this.initialized = true;
-      
       % initialize options structure
       this.options = fminslp.slpoptions(varargin);
       
       % Initialize global convergence filter
       this.filter = fminslp.initializeGlobalConvergenceFilter(this.options);
       
+      % We made it this far
+      this.initialized = true;
     end
     
     % Main function
@@ -198,7 +198,7 @@ classdef fminslp < handle
         fprintf('*********************************************************************************************************')
         fprintf('\n \t \t \t \t \t \t fminslp optimizer with global convergence filter')
         fprintf('\n*********************************************************************************************************\n')
-        fprintf('\t %10s \t\t %10s \t \t %10s \t \t   %10s \t \t   %10s \n','f(x,y)','Max inf', 'Norm dx', 'nFeval','IterNo');
+        fprintf('\t %10s \t\t %10s \t \t %10s \t \t   %10s \t \t   %10s \n','f(x)','Max inf', 'Norm dx', 'nFeval','IterNo');
       end
         
       % Allocate iteration history array
@@ -206,7 +206,6 @@ classdef fminslp < handle
       % constraints, norm of design variable change
       this.history.f = zeros(this.options.MaxIterations,1);
       this.history.xnorm = zeros(this.options.MaxIterations,1);
-      
       
       x = this.x0(:);
       
@@ -217,12 +216,6 @@ classdef fminslp < handle
       % Initialize "old" design variables
       xold1 = x;
       xold2 = x;
-      
-      % evaluate objective function at initial point
-      this.f0  = this.fun(x);
-      
-      % Get scaling factor for merit function
-      this.aFac = max([abs(this.f0),1]);
       
       % evaluate initial non-linear in-equality constraints
       if ~isempty(this.nonlcon)
@@ -245,8 +238,23 @@ classdef fminslp < handle
         this.history.maxInf = [];
       end
       
+      if strcmpi(this.options.Algorithm,'AL')
+        % Initialize lagrange multipliers to 1, 
+        % this is nesseary such that the gradient for the y-variable
+        % is at least 1 in the first iteration.
+        this.lambda = ones(this.nGnl,1);
+        % Update lagrange multipliers based on the initial infeasibilities
+        this.updateLambda(y);
+      end
+      
+      % evaluate objective function at initial point
+      this.f0  = this.fun(x);
+      
+      % Get scaling factor for merit function
+      this.aFac = max([abs(this.f0),1]);
+      
       % Evaluate merit function
-      fmerit = this.getMeritObj(x,y);
+      fmerit = this.getMeritObj(x,y,false);
       % Store initial value for filter
       this.filter.initF = fmerit;
       % Store "old" value for convergence check
@@ -263,10 +271,10 @@ classdef fminslp < handle
         iterNo = iterNo + 1;
         
         % evaluate gradients
-        [~,dfmerit] = this.getMeritObj(x,y);
-        [gmerit] = this.getMeritConstraints(x,y);
-        [~,dgmerit] = this.getMeritConstraints(x,y);
-
+        [~,dfmerit] = this.getMeritObj(x,y,true);
+        [gmerit] = this.getMeritConstraints(x,y,false);
+        [~,dgmerit] = this.getMeritConstraints(x,y,true);
+        
         if ~isempty(this.A)
           % Assemble linear and non-linear in-equality constraints
           Am = zeros(size(this.A,1)+this.nGnl,size(this.A,2)+this.nGnl); % Allocate
@@ -287,7 +295,7 @@ classdef fminslp < handle
             bm = [];
           end
         end
-
+        
         % Expand linear equality constraints to account for slag variables
         if ~isempty(this.Aeq)
           Ameq = zeros(size(this.Aeq,1),size(this.Aeq)+this.nGnl);
@@ -321,17 +329,27 @@ classdef fminslp < handle
           xNew = xlpNew(1:this.nDV);
           yNew = xlpNew(this.nDV+1:end);
           
+          % Determine design deltas
           deltaxy = xlpNew-[x;y];
           deltax = xNew - x;
           deltanorm = norm(deltax);
           
-          
+          % Determine optimality Norm for convergence check
           optimalityNorm = norm(dfmerit(1:end-this.nGnl)) + norm(yNew);
           
-          % evaluate new design
+          % evaluate constraints
+          [gmerit,~,greal] = this.getMeritConstraints(xNew,yNew,false);
+          
+          % Should we update lagrange multipliers
+          if strcmpi(this.options.Algorithm,'AL')
+            this.updateLambda(gmerit);
+          end
+          
+          % Evaluate objective function at new point
           nFeval = nFeval + 1;
-          fmerit = this.getMeritObj(xNew,yNew);
-          gmerit = this.getMeritConstraints(xNew,yNew);
+          
+          [fmerit,~,freal] = this.getMeritObj(xNew,yNew,false);
+          
           % Determine delta for merit function
           deltaf = fOld - fmerit;
           
@@ -356,7 +374,6 @@ classdef fminslp < handle
               % Accepted
               reduceSwitch = false;
               backtrack = false;
-
               % Check if we should but the new point (h,f) into the filter
               if(this.filter.h > 0.0)
                 AddToFilter = true;
@@ -378,7 +395,6 @@ classdef fminslp < handle
             fval = this.fun(x);
           end
           
-          
         end % Inner loop
         
         % Does the new point(h,f) qualify to be added to the filter?
@@ -389,16 +405,18 @@ classdef fminslp < handle
         % Update design variables
         x = xNew;
         y = yNew;
+        
         % Update "old" design
-        fOld = fmerit;
-        this.history.f(iterNo) = fmerit;
+        fOld = freal;
+        this.history.f(iterNo) = freal;
         this.history.xnorm(iterNo) = deltanorm;
-        this.history.maxInf(iterNo) = this.filter.h;
+        maxInf = max([greal;0]);
+        this.history.maxInf(iterNo) = maxInf;
         this.history.nIter = iterNo;
         this.history.nFeval = nFeval;
         
         if strcmpi(this.options.Display,'iter')
-            fprintf('\t %6.4e \t \t %6.4e \t \t %6.4e \t \t %10i \t \t %10i \n' ,fmerit,this.filter.h, deltanorm, nFeval ,iterNo);
+            fprintf('\t %6.4e \t \t %6.4e \t \t %6.4e \t \t %10i \t \t %10i \n' ,freal, maxInf, deltanorm, nFeval ,iterNo);
         end
         
       end % Main loop
@@ -406,7 +424,10 @@ classdef fminslp < handle
       this.history.f(iterNo+1:end)=[];
       this.history.xnorm(iterNo+1:end)=[];
       this.history.maxInf(iterNo+1:end)=[];
-      output = this.history;
+      output.history = this.history;
+      if strcmpi(this.options.Algorithm,'AL')
+        output.lambda = this.lambda./this.aFac;
+      end
       
     end % Solve function
     
@@ -449,35 +470,52 @@ classdef fminslp < handle
   
   methods (Hidden = true)
     
-    function [fmerit,dfmerit] = getMeritObj(this,x,y)
+    function [fmerit,dfmerit,fval] = getMeritObj(this,x,y,doDSA)
       fmerit = [];
+      fval = [];
       dfmerit = [];
-      switch nargout
-        case 1
+      
+      if ~doDSA
           fval = this.fun(x);
-          fmerit = fval + this.aFac*sum(y*this.options.InfeasibilityPenalization+0.5*y.^2);
-        case 2
+          switch this.options.Algorithm
+            case 'Merit'
+              fmerit = fval + this.aFac*sum(y*this.options.InfeasibilityPenalization+0.5*y.^2);
+            case 'AL'
+              fmerit = fval + this.aFac*sum(y.*this.lambda+this.options.InfeasibilityPenalization*0.5*y.^2);
+          end
+      else
           [~,df] = this.fun(x);
-          dy = this.aFac*(this.options.InfeasibilityPenalization+y);
+          switch this.options.Algorithm
+            case 'Merit'
+              dy = this.aFac*(this.options.InfeasibilityPenalization+y);
+            case 'AL'
+              dy = this.aFac*(this.lambda+this.options.InfeasibilityPenalization*y);
+          end
+            
           dfmerit = [df;dy];
       end
     end
     
-    function [gmerit,dgmerit] = getMeritConstraints(this,x,y)
+    function [gmerit,dgmerit,greal] = getMeritConstraints(this,x,y,doDSA)
       gmerit = [];
       dgmerit = [];
+      greal = [];
       if ~isempty(this.nonlcon)
-        switch nargout
-          case 1
+        if ~doDSA
             [gn, gneq] = this.nonlcon(x);
-            gmerit = [gn(:);gneq(:);-gneq(:)]-y;
-          case 2
+            greal = [gn(:);gneq(:);-gneq(:)];
+            gmerit = greal-y;
+        else
             [~,~,dgnl,dgneq] = this.nonlcon(x);
             dgmerit = zeros(this.nGnl,this.nDV+this.nGnl);
             dgmerit(:,1:this.nDV) = [dgnl';dgneq';-dgneq'];
             dgmerit(:,this.nDV+1:end) = -1.0*eye(this.nGnl);
         end
       end
+    end
+    
+    function updateLambda(this,y)
+      this.lambda = max(this.lambda + this.options.InfeasibilityPenalization*y,1);
     end
     
     function [x,exitflag] = lpSolver(this,df,A,b,Aeq,beq,lb,ub,x)
@@ -526,7 +564,7 @@ classdef fminslp < handle
     
   end
   
-  methods(Static = true, Hidden = true)
+  methods (Static = true, Hidden = true)
     
     % options initialization
     function options = slpoptions(input)
@@ -536,15 +574,14 @@ classdef fminslp < handle
       % Helper functions for input parser
       checkEmpetyOrChar = @(x) (isempty(x) || ischar(x));
       checkEmptyOrNumericPositive = @(x) (isempty(x) || (isnumeric(x) && all(x > 0)));
-
       
-      % Define offset methods
+      % Set parameters
       p.addParameter('Algorithm','merit',  @(x) checkEmpetyOrChar(x));
       p.addParameter('Solver','linprog',  @(x) checkEmpetyOrChar(x));
       p.addParameter('Display','off',  @(x) checkEmpetyOrChar(x));
       p.addParameter('MaxFunctionEvaluations',1000,  @(x) checkEmptyOrNumericPositive(x));
       p.addParameter('MaxIterations',1000,  @(x) checkEmptyOrNumericPositive(x));
-      p.addParameter('InfeasibilityPenalization',1000,  @(x) checkEmptyOrNumericPositive(x));
+      p.addParameter('InfeasibilityPenalization',100,  @(x) checkEmptyOrNumericPositive(x));
       p.addParameter('OptimalityTolerance',1e-6,  @(x) checkEmptyOrNumericPositive(x));
       p.addParameter('StepTolerance',1e-10,  @(x) checkEmptyOrNumericPositive(x));
       
@@ -553,7 +590,6 @@ classdef fminslp < handle
       p.addParameter('MoveLimit',0.1,  @(x) checkEmptyOrNumericPositive(x));
       p.addParameter('MoveLimitExpand',1.1,  @(x) checkEmptyOrNumericPositive(x));
       p.addParameter('MoveLimitReduce',0.5,  @(x) checkEmptyOrNumericPositive(x));
-      
       
       % Define global convergene filter parameters
       p.addParameter('MaxInfeasibility',inf,  @(x) checkEmptyOrNumericPositive(x));
@@ -565,6 +601,7 @@ classdef fminslp < handle
         parse(p,input{:});
       end
       
+      % Output results to options structure
       options = p.Results;
       
     end
@@ -582,7 +619,7 @@ classdef fminslp < handle
       filter.h = 1.0e30; % Current infeasibility point, large initialization
       filter.f = 1.0e30; % Current objective point, large initialization
       filter.initF = 0.0; % Initial objective function value
-
+      
       % Initial values in SLP filter
       if options.MaxInfeasibility < inf
         % Here MaxInfeasibility sets the maximum acceptable infeasibility
@@ -603,10 +640,10 @@ classdef fminslp < handle
     
     % SLP Global Convergence filter function
     function [filter] = EvaluateCurrentDesignPointToFilter(filter)
-
+    % Extract current point
     h = filter.h;
     f = filter.f;
-
+    % Loop for all values in filter
       for ii = 1:filter.nVals
         hi = filter.vals(ii,1);
         fi = filter.vals(ii,2);
@@ -618,7 +655,7 @@ classdef fminslp < handle
         end % Accepted or not
       end % Loop for filter values
     end
-
+    
     % SLP Global Convergence filter function
     function [newFilter] = UpdateFilter(filter, hk, fk)
     % This function adds the pair (hk,fk) to the filter.
@@ -637,21 +674,19 @@ classdef fminslp < handle
             fi = filter.vals(ii,2);
           % Dominated or not?
           if ( (hk <= hi) && (fk <= (fi)) )
-
-
+            
           else % Copy old data to new filter
             newFilter.nVals = newFilter.nVals + 1;
             newFilter.vals(newFilter.nVals,1) = hi;
             newFilter.vals(newFilter.nVals,2) = fi;
           end
-
+          
           if (ii >= filter.nVals)
             Update = false;
           end
-
         end 
       end
-
+      
       % Add new values to filter
       newFilter.nVals = newFilter.nVals + 1;
       newFilter.vals(newFilter.nVals,1) = hk;
@@ -660,7 +695,7 @@ classdef fminslp < handle
     
     % Adaptive move-limit algorithm
     function [xLcur, xUcur] = AdaptiveMoveLimit(x, xLcur, xUcur, xLorg, xUorg, moveLimit ,reduceFac, expandFac, xold1, xold2, reduceSwitch)
-
+      
       if (reduceSwitch)
         Expand = reduceFac;
         Reduction = reduceFac;
