@@ -11,7 +11,7 @@ classdef examples < handle
     function this = examples(solver,algorithm)
       
       if nargin < 1 || isempty(solver)
-        this.solver = 'linprog';
+        this.solver = 'glpk';
       else
         this.solver = solver;
       end
@@ -38,10 +38,10 @@ classdef examples < handle
           %   Starting point: (x1,x2) = (1,1)         (a feasible point)
           x0 = [1;1];
           lb = [0;0];
-          ub = [7;10];
+          ub = [10;10];
           f =@(x) examples.f1(x);
           g =@(x) examples.g1(x);
-          ex = fminslp(f,x0,[],[],[],[],lb,ub,g,'display','iter','Algorithm',this.algorithm ,'Solver',this.solver);
+          ex = fminslp(f,x0,[],[],[],[],lb,ub,g,'display','iter','Algorithm',this.algorithm ,'Solver',this.solver,'SpecifyConstraintGradient',true,'SpecifyObjectiveGradient',true,'CheckGradients',true);
           [x,fval,exitflag,output] = ex.solve;
           ex.postprocess;
           
@@ -59,7 +59,7 @@ classdef examples < handle
           ub = [4;4];
           f =@(x) examples.f2(x);
           g =@(x) examples.g2(x);
-          ex = fminslp(f,x0,[],[],[],[],lb,ub,g,'display','iter','Algorithm',this.algorithm ,'Solver',this.solver);
+          ex = fminslp(f,x0,[],[],[],[],lb,ub,g,'display','iter','Algorithm',this.algorithm ,'Solver',this.solver,'SpecifyConstraintGradient',true,'SpecifyObjectiveGradient',true,'CheckGradients',true);
           [x,fval,exitflag,output] = ex.solve;
           ex.postprocess;
           
@@ -78,7 +78,7 @@ classdef examples < handle
           ub = [100;100];
           f =@(x) examples.f3(x);
           g =@(x) examples.g3(x);
-          ex = fminslp(f,x0,[],[],[],[],lb,ub,g,'display','iter','Algorithm',this.algorithm ,'Solver',this.solver);
+          ex = fminslp(f,x0,[],[],[],[],lb,ub,g,'display','iter','Algorithm',this.algorithm ,'Solver',this.solver,'SpecifyConstraintGradient',true,'SpecifyObjectiveGradient',true,'CheckGradients',true);
           [x,fval,exitflag,output] = ex.solve;
           ex.postprocess;
           
@@ -95,7 +95,7 @@ classdef examples < handle
           ub = [0;10;1e6];
           f =@(x) examples.f4(x);
           g =@(x) examples.g4(x);
-          ex = fminslp(f,x0,[],[],[],[],lb,ub,g,'display','iter','Algorithm',this.algorithm ,'Solver',this.solver);
+          ex = fminslp(f,x0,[],[],[],[],lb,ub,g,'display','iter','Algorithm',this.algorithm ,'Solver',this.solver,'SpecifyConstraintGradient',true,'SpecifyObjectiveGradient',true,'CheckGradients',true);
           [x,fval,exitflag,output] = ex.solve;
           ex.postprocess;
       end % switch
@@ -111,7 +111,7 @@ classdef examples < handle
             f = -2*x(1) - x(2);
           case 2
             df(1,1) = -2;
-            df(2,1) = 1;
+            df(2,1) = -1;
         end
       end
       
@@ -216,7 +216,7 @@ classdef examples < handle
       function [g,geq,dg,dgeq] = g4(x)
         g = [];
         geq = [];
-        dg = [];
+        dg = zeros(3,4);
         dgeq = [];
         
         switch nargout
@@ -243,6 +243,7 @@ classdef examples < handle
             dg(3,4) = 0;
         end
       end
+      
   end % Methods
   
 end % class

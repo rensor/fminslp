@@ -50,6 +50,11 @@ options = fminslp.slpoptions();
           OptimalityTolerance: 1.0000e-06
                        Solver: 'linprog'
                 StepTolerance: 1.0000e-10
+	SpecifyConstraintGradient: 0
+	 SpecifyObjectiveGradient: 0
+	           CheckGradients: 0
+	 FiniteDifferenceStepSize: sqrt(eps)
+		FiniteDifferenceType : 'forward' or 'backward' or 'central'
                 
 Modify individual options, the rest are initialized to default values
 
@@ -68,3 +73,17 @@ options = fminslp.slpoptions('MoveLimit',0.01);
           OptimalityTolerance: 1.0000e-06
                        Solver: 'linprog'
                 StepTolerance: 1.0000e-10
+	SpecifyConstraintGradient: 0
+	 SpecifyObjectiveGradient: 0
+	           CheckGradients: 0
+	 FiniteDifferenceStepSize: sqrt(eps)
+		FiniteDifferenceType : 'forward'
+
+Change log
+	- v1.1: 
+		-Changed default behaivor wrt., user supplied gradients. Now, the program assumes no user supplied gradients. Same as with fmincon.
+		 If the user has analytical gradients, these can be supplied and activated by using the two options 'SpecifyConstraintGradient' and 'SpecifyObjectiveGradient'
+		-Added finite difference schemes to approximate objective and constraint gradients
+		-Added option to check user supplied gradients agains finite difference approximations
+		-Found bug in examples
+			

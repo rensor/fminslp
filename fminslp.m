@@ -2,6 +2,7 @@ classdef fminslp < handle
   
   properties(Constant)
     name = 'fminslp';
+    version = 'v1.1';
   end
 
   properties
@@ -184,6 +185,12 @@ classdef fminslp < handle
       
       % Initialize global convergence filter
       this.filter = fminslp.initializeGlobalConvergenceFilter(this.options);
+      
+      % Check Gradients
+      if this.options.CheckGradients
+        this.CheckUserSuppliedGradients;
+      end
+      
       
       % We made it this far
       this.initialized = true;
@@ -484,7 +491,12 @@ classdef fminslp < handle
               fmerit = fval + this.aFac*sum(y.*this.lambda+this.options.InfeasibilityPenalization*0.5*y.^2);
           end
       else
-          [~,df] = this.fun(x);
+          if this.options.SpecifyObjectiveGradient
+            [~,df] = this.fun(x);
+          else
+            df = this.getFunDSA(x);
+          end
+        
           switch this.options.Algorithm
             case 'Merit'
               dy = this.aFac*(this.options.InfeasibilityPenalization+y);
@@ -506,7 +518,11 @@ classdef fminslp < handle
             greal = [gn(:);gneq(:);-gneq(:)];
             gmerit = greal-y;
         else
-            [~,~,dgnl,dgneq] = this.nonlcon(x);
+            if this.options.SpecifyConstraintGradient
+              [~,~,dgnl,dgneq] = this.nonlcon(x);
+            else
+              [dgnl,dgneq] = this.getNonlconDSA(x);
+            end
             dgmerit = zeros(this.nGnl,this.nDV+this.nGnl);
             dgmerit(:,1:this.nDV) = [dgnl';dgneq';-dgneq'];
             dgmerit(:,this.nDV+1:end) = -1.0*eye(this.nGnl);
@@ -562,6 +578,172 @@ classdef fminslp < handle
       end
     end
     
+    function [df] = getFunDSA(this,x)
+      df = zeros(this.nDV,1);
+      h = this.options.FiniteDifferenceStepSize;
+      switch lower(this.options.FiniteDifferenceType)
+        case 'forward'
+          f0 = this.fun(x);
+          for dvNo = 1:this.nDV
+            x0 = x(dvNo);
+            x(dvNo) = x0+h;
+            p1 = this.fun(x);
+            df(dvNo) = (p1-f0)/(h);
+            x(dvNo) = x0;
+          end
+        case 'backward'
+          f0 = this.fun(x);
+          for dvNo = 1:this.nDV
+            x0 = x(dvNo);
+            x(dvNo) = x0-h;
+            m1 = this.fun(x);
+            df(dvNo) = (f0-m1)/(h);
+            x(dvNo) = x0;
+          end
+        case 'central'
+          for dvNo = 1:this.nDV
+            x0 = x(dvNo);
+            x(dvNo) = x0+h;
+            p1 = this.fun(x);
+            x(dvNo) = x0-h;
+            m1 = this.fun(x);
+            df(dvNo) = (p1-m1)/(2*h);
+            x(dvNo) = x0;
+          end
+        otherwise
+          error([this.name,': Unknown FiniteDifferenceType'])
+      end
+      
+      
+    end
+    
+    function [dg,dgeq] = getNonlconDSA(this,x)
+      
+      h = this.options.FiniteDifferenceStepSize;
+      dg = [];
+      dgeq = [];
+      switch lower(this.options.FiniteDifferenceType)
+        case 'forward'
+          [gnl0, gnleq0] = this.nonlcon(x);
+          ngnl = numel(gnl0);
+          ngnleq = numel(gnleq0);
+          if (ngnl>0)
+            dg = zeros(this.nDV,ngnl);
+          end
+          
+          if (ngnleq>0)
+            dgeq = zeros(this.nDV,ngnleq);
+          end
+          if ngnl > 0 || ngnleq > 0
+            for dvNo = 1:this.nDV
+              x0 = x(dvNo);
+              x(dvNo) = x0+h;
+              [gp1, geqp1] = this.nonlcon(x);
+              for gNo = 1:ngnl
+                dg(dvNo,gNo) = (gp1(gNo)-gnl0(gNo))/(h);
+              end
+              for gNo = 1:ngnleq
+                dgeq(dvNo,gNo) = (geqp1(gNo)-gnleq0(gNo))/(h);
+              end
+              x(dvNo) = x0;
+            end
+          end
+        case 'backward'
+          [gnl0, gnleq0] = this.nonlcon(x);
+          ngnl = numel(gnl0);
+          ngnleq = numel(gnleq0);
+          if (ngnl>0)
+            dg = zeros(this.nDV,ngnl);
+          end
+          
+          if (ngnleq>0)
+            dgeq = zeros(this.nDV,ngnleq);
+          end
+          if ngnl > 0 || ngnleq > 0
+            for dvNo = 1:this.nDV
+              x0 = x(dvNo);
+              x(dvNo) = x0-h;
+              [gm1, geqm1] = this.nonlcon(x);
+              for gNo = 1:ngnl
+                dg(dvNo,gNo) = (gnl0(gNo)-gm1(gNo))/(h);
+              end
+              for gNo = 1:ngnleq
+                dgeq(dvNo,gNo) = (gnleq0(gNo)-geqm1(gNo))/(h);
+              end
+              x(dvNo) = x0;
+            end
+          end
+        case 'central'
+          firstTime = true;
+          for dvNo = 1:this.nDV
+            x0 = x(dvNo);
+            x(dvNo) = x0+h;
+            [gp1, geqp1] = this.nonlcon(x);
+            x(dvNo) = x0-h;
+            [gm1, geqm1] = this.nonlcon(x);
+            
+            if firstTime
+              firstTime = false;
+              ngnl = numel(gp1);
+              ngnleq = numel(geqp1);
+              if (ngnl>0)
+                dg = zeros(this.nDV,ngnl);
+              end
+              
+              if (ngnleq>0)
+                dgeq = zeros(this.nDV,ngnleq);
+              end
+            end
+            if ngnl > 0 || ngnleq > 0
+              for gNo = 1:ngnl
+                dg(dvNo,gNo) = (gp1(gNo)-gm1(gNo))/(2*h);
+              end
+              for gNo = 1:ngnleq
+                dgeq(dvNo,gNo) = (geqp1(gNo)-geqm1(gNo))/(2*h);
+              end
+            end
+            x(dvNo) = x0;
+          end
+        otherwise
+          error([this.name,': Unknown FiniteDifferenceType'])
+      end
+      
+    end
+    
+    function CheckUserSuppliedGradients(this)
+          
+          this.options.FiniteDifferenceType = 'central';
+          if this.options.SpecifyObjectiveGradient
+            [~,dfUser] = this.fun(this.x0);
+            dfFiniteDiff = this.getFunDSA(this.x0);
+            dsaDiff = dfUser-dfFiniteDiff;
+            maxDiff = max(abs(dsaDiff));
+            formatSpec = '\n \t Derivative Check Information\n Objective function derivatives: \n Maximum difference between user-supplied and finite-difference derivatives = %0.5e';
+            message = sprintf(formatSpec,maxDiff);
+            disp(message);
+          end
+          if this.options.SpecifyConstraintGradient
+            [~,~,dgnlUser,dgneqUser] = this.nonlcon(this.x0);
+            [dgnlFiniteDiff,dgneqFiniteDiff] = this.getNonlconDSA(this.x0);
+            if ~isempty(dgnlUser)
+              dsaDiff = abs(dgnlUser-dgnlFiniteDiff);
+              [maxDiff,idx]=max(dsaDiff(:));
+              [dvNo,gNo]=ind2sub(size(dsaDiff),idx);
+              formatSpec = '\n \t Derivative Check Information\n Nonlinear inequality constraint derivatives: \n Maximum difference between user-supplied and finite-difference derivatives = %0.5e \n \t User-supplied constraint derivative element (%i,%i): %0.5e \n \t Finite-difference constraint derivative element (%i,%i): %0.5e';
+              message = sprintf(formatSpec,maxDiff,dvNo,gNo,dgnlUser(dvNo,gNo),dvNo,gNo,dgnlFiniteDiff(dvNo,gNo));
+              disp(message);
+            end
+            if ~isempty(dgneqUser)
+              dsaDiff = abs(dgneqUser-dgneqFiniteDiff);
+              [maxDiff,idx]=max(dsaDiff(:));
+              [gNo,dvNo]=ind2sub(size(dsaDiff),idx);
+              formatSpec = '\n \t Derivative Check Information\n Nonlinear equality constraint derivatives: \n Maximum difference between user-supplied and finite-difference derivatives = %0.5e \n \t User-supplied constraint derivative element (%i,%i): %0.5e \n \t Finite-difference constraint derivative element (%i,%i): %0.5e';
+              message = sprintf(formatSpec,maxDiff,dvNo,gNo,dgnlUser(dvNo,gNo),dvNo,gNo,dgnlFiniteDiff(dvNo,gNo));
+              disp(message);
+            end
+          end
+    end
+    
   end
   
   methods (Static = true, Hidden = true)
@@ -574,6 +756,8 @@ classdef fminslp < handle
       % Helper functions for input parser
       checkEmpetyOrChar = @(x) (isempty(x) || ischar(x));
       checkEmptyOrNumericPositive = @(x) (isempty(x) || (isnumeric(x) && all(x > 0)));
+      checkNumericPositive = @(x) ((isnumeric(x) && all(x > 0)));
+      checkLogicalZeroOne = @(x) (islogical(x) || ((x==1) || (x==0)));
       
       % Set parameters
       p.addParameter('Algorithm','merit',  @(x) checkEmpetyOrChar(x));
@@ -584,6 +768,13 @@ classdef fminslp < handle
       p.addParameter('InfeasibilityPenalization',100,  @(x) checkEmptyOrNumericPositive(x));
       p.addParameter('OptimalityTolerance',1e-6,  @(x) checkEmptyOrNumericPositive(x));
       p.addParameter('StepTolerance',1e-10,  @(x) checkEmptyOrNumericPositive(x));
+      p.addParameter('FiniteDifferenceType','forward',  @(x) ischar(x));
+      p.addParameter('FiniteDifferenceStepSize',sqrt(eps),@(x) checkNumericPositive(x));
+      p.addParameter('SpecifyConstraintGradient',0,@(x) checkLogicalZeroOne(x));
+      p.addParameter('SpecifyObjectiveGradient',0,@(x) checkLogicalZeroOne(x)); 
+      p.addParameter('CheckGradients',0,@(x) checkLogicalZeroOne(x)); 
+      
+      
       
       % Move-limit parameters
       p.addParameter('MoveLimitMethod','adaptive',  @(x) checkEmpetyOrChar(x));
