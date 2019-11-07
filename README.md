@@ -81,8 +81,7 @@ options = fminslp.slpoptions('MoveLimit',0.01);
 
 Change log
 	- v1.1: 
-		-Changed default behaivor wrt., user supplied gradients. Now, the program assumes no user supplied gradients. Same as with fmincon.
-		 If the user has analytical gradients, these can be supplied and activated by using the two options 'SpecifyConstraintGradient' and 'SpecifyObjectiveGradient'
+		-Changed default behaivor wrt., user supplied gradients. Now, the program assumes no user supplied gradients. Same as with fmincon.If the user has analytical gradients, these can be supplied and activated by using the two options 'SpecifyConstraintGradient' and 'SpecifyObjectiveGradient'
 		-Added finite difference schemes to approximate objective and constraint gradients
 		-Added option to check user supplied gradients agains finite difference approximations
 		-Found bug in examples
