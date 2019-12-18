@@ -2,7 +2,7 @@ classdef fminslp < handle
   
   properties(Constant)
     name = 'fminslp';
-    version = 'v1.1';
+    version = 'v1.2';
   end
 
   properties
@@ -213,6 +213,7 @@ classdef fminslp < handle
       % constraints, norm of design variable change
       this.history.f = zeros(this.options.MaxIterations,1);
       this.history.xnorm = zeros(this.options.MaxIterations,1);
+      minDVBoxLimit = 2*this.options.StepTolerance;
       
       x = this.x0(:);
       
@@ -261,7 +262,7 @@ classdef fminslp < handle
       this.aFac = max([abs(this.f0),1]);
       
       % Evaluate merit function
-      fmerit = this.getMeritObj(x,y,false);
+      fmerit = this.getMeritObj(x,y);
       % Store initial value for filter
       this.filter.initF = fmerit;
       % Store "old" value for convergence check
@@ -278,9 +279,8 @@ classdef fminslp < handle
         iterNo = iterNo + 1;
         
         % evaluate gradients
-        [~,dfmerit] = this.getMeritObj(x,y,true);
-        [gmerit] = this.getMeritConstraints(x,y,false);
-        [~,dgmerit] = this.getMeritConstraints(x,y,true);
+        [~,~,dfmerit] = this.getMeritObj(x,y);
+        [gmerit,~,dgmerit] = this.getMeritConstraints(x,y);
         
         if ~isempty(this.A)
           % Assemble linear and non-linear in-equality constraints
@@ -313,7 +313,7 @@ classdef fminslp < handle
         
         % update move-limits
         reduceSwitch = false;
-        [xLcur, xUcur] = this.AdaptiveMoveLimit(x, xLcur, xUcur, this.lb, this.ub, this.options.MoveLimit ,this.options.MoveLimitReduce, this.options.MoveLimitExpand, xold1, xold2, reduceSwitch);
+        [xLcur, xUcur] = this.AdaptiveMoveLimit(x, xLcur, xUcur, this.lb, this.ub, this.options.MoveLimit ,this.options.MoveLimitReduce, this.options.MoveLimitExpand, xold1, xold2, reduceSwitch,minDVBoxLimit);
         
         % update old values
         xold2 = xold1;
@@ -332,6 +332,13 @@ classdef fminslp < handle
           % Call optimizer
           [xlpNew,exitflag] = this.lpSolver(dfmerit,Am,bm,Ameq,this.beq,xL,xU,[x;y]);
           
+          % Terminate if solution failed
+          if exitflag~=1
+            optimize = false;
+            fprintf('fminslp: LP solver failed, terminating with exitflag=%i \n',exitflag)
+            break
+          end
+          
           % Split design variables
           xNew = xlpNew(1:this.nDV);
           yNew = xlpNew(this.nDV+1:end);
@@ -345,7 +352,7 @@ classdef fminslp < handle
           optimalityNorm = norm(dfmerit(1:end-this.nGnl)) + norm(yNew);
           
           % evaluate constraints
-          [gmerit,~,greal] = this.getMeritConstraints(xNew,yNew,false);
+          [gmerit,greal] = this.getMeritConstraints(xNew,yNew);
           
           % Should we update lagrange multipliers
           if strcmpi(this.options.Algorithm,'AL')
@@ -355,7 +362,7 @@ classdef fminslp < handle
           % Evaluate objective function at new point
           nFeval = nFeval + 1;
           
-          [fmerit,~,freal] = this.getMeritObj(xNew,yNew,false);
+          [fmerit,freal] = this.getMeritObj(xNew,yNew);
           
           % Determine delta for merit function
           deltaf = fOld - fmerit;
@@ -391,7 +398,7 @@ classdef fminslp < handle
           end
           
           if reduceSwitch
-            [xLcur, xUcur] = this.AdaptiveMoveLimit(x, xLcur, xUcur,this.lb, this.ub, this.options.MoveLimit ,this.options.MoveLimitReduce, this.options.MoveLimitExpand, xold1, xold2, reduceSwitch);
+            [xLcur, xUcur] = this.AdaptiveMoveLimit(x, xLcur, xUcur,this.lb, this.ub, this.options.MoveLimit ,this.options.MoveLimitReduce, this.options.MoveLimitExpand, xold1, xold2, reduceSwitch,minDVBoxLimit);
           end
           
           % check for convergence
@@ -477,56 +484,56 @@ classdef fminslp < handle
   
   methods (Hidden = true)
     
-    function [fmerit,dfmerit,fval] = getMeritObj(this,x,y,doDSA)
-      fmerit = [];
-      fval = [];
-      dfmerit = [];
+    function [fmerit,fval,dfmerit] = getMeritObj(this,x,y)
       
-      if ~doDSA
+      if nargout > 2
+        if this.options.SpecifyObjectiveGradient
+          [fval,df] = this.fun(x);
+        else
           fval = this.fun(x);
-          switch this.options.Algorithm
-            case 'Merit'
-              fmerit = fval + this.aFac*sum(y*this.options.InfeasibilityPenalization+0.5*y.^2);
-            case 'AL'
-              fmerit = fval + this.aFac*sum(y.*this.lambda+this.options.InfeasibilityPenalization*0.5*y.^2);
-          end
-      else
-          if this.options.SpecifyObjectiveGradient
-            [~,df] = this.fun(x);
-          else
-            df = this.getFunDSA(x);
-          end
+          df = this.getFunDSA(x,fval);
+        end
         
-          switch this.options.Algorithm
-            case 'Merit'
-              dy = this.aFac*(this.options.InfeasibilityPenalization+y);
-            case 'AL'
-              dy = this.aFac*(this.lambda+this.options.InfeasibilityPenalization*y);
-          end
-            
-          dfmerit = [df;dy];
+        switch this.options.Algorithm
+          case 'merit'
+            dy = this.aFac*(this.options.InfeasibilityPenalization+y);
+          case 'al'
+            dy = this.aFac*(this.lambda+this.options.InfeasibilityPenalization*y);
+        end
+        dfmerit = [df;dy];
+      else
+        fval = this.fun(x);
       end
+
+      switch this.options.Algorithm
+        case 'merit'
+          fmerit = fval + this.aFac*sum(y*this.options.InfeasibilityPenalization+0.5*y.^2);
+        case 'al'
+          fmerit = fval + this.aFac*sum(y.*this.lambda+this.options.InfeasibilityPenalization*0.5*y.^2);
+      end
+
     end
     
-    function [gmerit,dgmerit,greal] = getMeritConstraints(this,x,y,doDSA)
+    function [gmerit,greal,dgmerit] = getMeritConstraints(this,x,y)
       gmerit = [];
       dgmerit = [];
       greal = [];
       if ~isempty(this.nonlcon)
-        if ~doDSA
+        if nargout > 2
+          if this.options.SpecifyConstraintGradient
+            [gn,gneq,dgnl,dgneq] = this.nonlcon(x);
+          else
             [gn, gneq] = this.nonlcon(x);
-            greal = [gn(:);gneq(:);-gneq(:)];
-            gmerit = greal-y;
+            [dgnl,dgneq] = this.getNonlconDSA(x);
+          end
+          dgmerit = zeros(this.nGnl,this.nDV+this.nGnl);
+          dgmerit(:,1:this.nDV) = [dgnl';dgneq';-dgneq'];
+          dgmerit(:,this.nDV+1:end) = -1.0*eye(this.nGnl);
         else
-            if this.options.SpecifyConstraintGradient
-              [~,~,dgnl,dgneq] = this.nonlcon(x);
-            else
-              [dgnl,dgneq] = this.getNonlconDSA(x);
-            end
-            dgmerit = zeros(this.nGnl,this.nDV+this.nGnl);
-            dgmerit(:,1:this.nDV) = [dgnl';dgneq';-dgneq'];
-            dgmerit(:,this.nDV+1:end) = -1.0*eye(this.nGnl);
+          [gn, gneq] = this.nonlcon(x);
         end
+          greal = [gn(:);gneq(:);-gneq(:)];
+          gmerit = greal-y;
       end
     end
     
@@ -539,10 +546,21 @@ classdef fminslp < handle
       switch this.options.Solver
         
         case 'linprog' % MathWorks solver
-          linprogOptions = optimoptions('linprog','Algorithm','dual-simplex','Display','off');
-          [x,~, exitflag]= linprog(df,A,b,Aeq,beq,lb,ub,x,linprogOptions);
+          linprogOptions = optimoptions('linprog','Algorithm','dual-simplex','Display','off','ConstraintTolerance',this.options.StepTolerance/2);
+          [x,~, exitflag,output]= linprog(df,A,b,Aeq,beq,lb,ub,x,linprogOptions);
+          if exitflag~=1
+            fprintf('MATLAB linprog exit message: %s \n',output.message)
+          end
           
-         case 'glpk' % Octave lp solver
+        case 'clp'
+          % Select open source solver from OPTI tool box (see ToolSet\BladeLib\Ext\OptiToolbox\Solvers)
+          rhsLower = [-inf(size(A,1),1);beq];
+          rhsUpper = [b;beq];
+          [x,~,exitflag,output] = opti_clp([],df,[A;Aeq],rhsLower,rhsUpper,lb,ub);
+          if exitflag~=1
+            fprintf('clp optimizer exit message: %s \n',output.Status)
+          end
+        case 'glpk' % Octave lp solver
           
           % Define constraints
           if ~isempty(A) && ~isempty(Aeq)
@@ -578,37 +596,41 @@ classdef fminslp < handle
       end
     end
     
-    function [df] = getFunDSA(this,x)
+    function [df] = getFunDSA(this,x,fin)
       df = zeros(this.nDV,1);
       h = this.options.FiniteDifferenceStepSize;
-      switch lower(this.options.FiniteDifferenceType)
+      switch this.options.FiniteDifferenceType
         case 'forward'
-          f0 = this.fun(x);
+          if nargin < 3 || ~isempty(fin)
+            fin = this.fun(x);
+          end
           for dvNo = 1:this.nDV
-            x0 = x(dvNo);
-            x(dvNo) = x0+h;
+            xin = x(dvNo);
+            x(dvNo) = xin+h;
             p1 = this.fun(x);
-            df(dvNo) = (p1-f0)/(h);
-            x(dvNo) = x0;
+            df(dvNo) = (p1-fin)/(h);
+            x(dvNo) = xin;
           end
         case 'backward'
-          f0 = this.fun(x);
+          if nargin < 3 || ~isempty(fin)
+            fin = this.fun(x);
+          end
           for dvNo = 1:this.nDV
-            x0 = x(dvNo);
-            x(dvNo) = x0-h;
+            xin = x(dvNo);
+            x(dvNo) = xin-h;
             m1 = this.fun(x);
-            df(dvNo) = (f0-m1)/(h);
-            x(dvNo) = x0;
+            df(dvNo) = (fin-m1)/(h);
+            x(dvNo) = xin;
           end
         case 'central'
           for dvNo = 1:this.nDV
-            x0 = x(dvNo);
-            x(dvNo) = x0+h;
+            xin = x(dvNo);
+            x(dvNo) = xin+h;
             p1 = this.fun(x);
-            x(dvNo) = x0-h;
+            x(dvNo) = xin-h;
             m1 = this.fun(x);
             df(dvNo) = (p1-m1)/(2*h);
-            x(dvNo) = x0;
+            x(dvNo) = xin;
           end
         otherwise
           error([this.name,': Unknown FiniteDifferenceType'])
@@ -622,7 +644,7 @@ classdef fminslp < handle
       h = this.options.FiniteDifferenceStepSize;
       dg = [];
       dgeq = [];
-      switch lower(this.options.FiniteDifferenceType)
+      switch this.options.FiniteDifferenceType
         case 'forward'
           [gnl0, gnleq0] = this.nonlcon(x);
           ngnl = numel(gnl0);
@@ -636,8 +658,8 @@ classdef fminslp < handle
           end
           if ngnl > 0 || ngnleq > 0
             for dvNo = 1:this.nDV
-              x0 = x(dvNo);
-              x(dvNo) = x0+h;
+              xin = x(dvNo);
+              x(dvNo) = xin+h;
               [gp1, geqp1] = this.nonlcon(x);
               for gNo = 1:ngnl
                 dg(dvNo,gNo) = (gp1(gNo)-gnl0(gNo))/(h);
@@ -645,7 +667,7 @@ classdef fminslp < handle
               for gNo = 1:ngnleq
                 dgeq(dvNo,gNo) = (geqp1(gNo)-gnleq0(gNo))/(h);
               end
-              x(dvNo) = x0;
+              x(dvNo) = xin;
             end
           end
         case 'backward'
@@ -661,8 +683,8 @@ classdef fminslp < handle
           end
           if ngnl > 0 || ngnleq > 0
             for dvNo = 1:this.nDV
-              x0 = x(dvNo);
-              x(dvNo) = x0-h;
+              xin = x(dvNo);
+              x(dvNo) = xin-h;
               [gm1, geqm1] = this.nonlcon(x);
               for gNo = 1:ngnl
                 dg(dvNo,gNo) = (gnl0(gNo)-gm1(gNo))/(h);
@@ -670,16 +692,16 @@ classdef fminslp < handle
               for gNo = 1:ngnleq
                 dgeq(dvNo,gNo) = (gnleq0(gNo)-geqm1(gNo))/(h);
               end
-              x(dvNo) = x0;
+              x(dvNo) = xin;
             end
           end
         case 'central'
           firstTime = true;
           for dvNo = 1:this.nDV
-            x0 = x(dvNo);
-            x(dvNo) = x0+h;
+            xin = x(dvNo);
+            x(dvNo) = xin+h;
             [gp1, geqp1] = this.nonlcon(x);
-            x(dvNo) = x0-h;
+            x(dvNo) = xin-h;
             [gm1, geqm1] = this.nonlcon(x);
             
             if firstTime
@@ -702,7 +724,7 @@ classdef fminslp < handle
                 dgeq(dvNo,gNo) = (geqp1(gNo)-geqm1(gNo))/(2*h);
               end
             end
-            x(dvNo) = x0;
+            x(dvNo) = xin;
           end
         otherwise
           error([this.name,': Unknown FiniteDifferenceType'])
@@ -718,9 +740,8 @@ classdef fminslp < handle
             dfFiniteDiff = this.getFunDSA(this.x0);
             dsaDiff = dfUser-dfFiniteDiff;
             maxDiff = max(abs(dsaDiff));
-            formatSpec = '\n \t Derivative Check Information\n Objective function derivatives: \n Maximum difference between user-supplied and finite-difference derivatives = %0.5e';
-            message = sprintf(formatSpec,maxDiff);
-            disp(message);
+            formatSpec = '\n \t Derivative Check Information\n Objective function derivatives: \n Maximum difference between user-supplied and finite-difference derivatives = %0.5e \n';
+            fprintf(formatSpec,maxDiff);
           end
           if this.options.SpecifyConstraintGradient
             [~,~,dgnlUser,dgneqUser] = this.nonlcon(this.x0);
@@ -729,17 +750,15 @@ classdef fminslp < handle
               dsaDiff = abs(dgnlUser-dgnlFiniteDiff);
               [maxDiff,idx]=max(dsaDiff(:));
               [dvNo,gNo]=ind2sub(size(dsaDiff),idx);
-              formatSpec = '\n \t Derivative Check Information\n Nonlinear inequality constraint derivatives: \n Maximum difference between user-supplied and finite-difference derivatives = %0.5e \n \t User-supplied constraint derivative element (%i,%i): %0.5e \n \t Finite-difference constraint derivative element (%i,%i): %0.5e';
-              message = sprintf(formatSpec,maxDiff,dvNo,gNo,dgnlUser(dvNo,gNo),dvNo,gNo,dgnlFiniteDiff(dvNo,gNo));
-              disp(message);
+              formatSpec = '\n \t Derivative Check Information\n Nonlinear inequality constraint derivatives: \n Maximum difference between user-supplied and finite-difference derivatives = %0.5e \n \t User-supplied constraint derivative element (%i,%i): %0.5e \n \t Finite-difference constraint derivative element (%i,%i): %0.5e \n';
+              fprintf(formatSpec,maxDiff,dvNo,gNo,dgnlUser(dvNo,gNo),dvNo,gNo,dgnlFiniteDiff(dvNo,gNo));
             end
             if ~isempty(dgneqUser)
               dsaDiff = abs(dgneqUser-dgneqFiniteDiff);
               [maxDiff,idx]=max(dsaDiff(:));
               [gNo,dvNo]=ind2sub(size(dsaDiff),idx);
-              formatSpec = '\n \t Derivative Check Information\n Nonlinear equality constraint derivatives: \n Maximum difference between user-supplied and finite-difference derivatives = %0.5e \n \t User-supplied constraint derivative element (%i,%i): %0.5e \n \t Finite-difference constraint derivative element (%i,%i): %0.5e';
-              message = sprintf(formatSpec,maxDiff,dvNo,gNo,dgnlUser(dvNo,gNo),dvNo,gNo,dgnlFiniteDiff(dvNo,gNo));
-              disp(message);
+              formatSpec = '\n \t Derivative Check Information\n Nonlinear equality constraint derivatives: \n Maximum difference between user-supplied and finite-difference derivatives = %0.5e \n \t User-supplied constraint derivative element (%i,%i): %0.5e \n \t Finite-difference constraint derivative element (%i,%i): %0.5e \n';
+              fprintf(formatSpec,maxDiff,dvNo,gNo,dgnlUser(dvNo,gNo),dvNo,gNo,dgnlFiniteDiff(dvNo,gNo));
             end
           end
     end
@@ -765,9 +784,9 @@ classdef fminslp < handle
       p.addParameter('Display','off',  @(x) checkEmpetyOrChar(x));
       p.addParameter('MaxFunctionEvaluations',1000,  @(x) checkEmptyOrNumericPositive(x));
       p.addParameter('MaxIterations',1000,  @(x) checkEmptyOrNumericPositive(x));
-      p.addParameter('InfeasibilityPenalization',100,  @(x) checkEmptyOrNumericPositive(x));
+      p.addParameter('InfeasibilityPenalization',1000,  @(x) checkEmptyOrNumericPositive(x));
       p.addParameter('OptimalityTolerance',1e-6,  @(x) checkEmptyOrNumericPositive(x));
-      p.addParameter('StepTolerance',1e-10,  @(x) checkEmptyOrNumericPositive(x));
+      p.addParameter('StepTolerance',1e-8,  @(x) checkEmptyOrNumericPositive(x));
       p.addParameter('FiniteDifferenceType','forward',  @(x) ischar(x));
       p.addParameter('FiniteDifferenceStepSize',sqrt(eps),@(x) checkNumericPositive(x));
       p.addParameter('SpecifyConstraintGradient',0,@(x) checkLogicalZeroOne(x));
@@ -794,6 +813,11 @@ classdef fminslp < handle
       
       % Output results to options structure
       options = p.Results;
+      % Enforce lower case
+      options.Algorithm = lower(options.Algorithm);
+      options.Solver = lower(options.Solver);
+      options.FiniteDifferenceType = lower(options.FiniteDifferenceType);
+      options.MoveLimitMethod = lower(options.MoveLimitMethod);
       
     end
     
@@ -885,7 +909,7 @@ classdef fminslp < handle
     end
     
     % Adaptive move-limit algorithm
-    function [xLcur, xUcur] = AdaptiveMoveLimit(x, xLcur, xUcur, xLorg, xUorg, moveLimit ,reduceFac, expandFac, xold1, xold2, reduceSwitch)
+    function [xLcur, xUcur] = AdaptiveMoveLimit(x, xLcur, xUcur, xLorg, xUorg, moveLimit ,reduceFac, expandFac, xold1, xold2, reduceSwitch, minDVBoxLimit)
       
       if (reduceSwitch)
         Expand = reduceFac;
@@ -893,6 +917,10 @@ classdef fminslp < handle
       else
         Reduction = reduceFac;
         Expand = expandFac;
+      end
+      
+      if nargin < 12 || isempty(minDVBoxLimit)
+        minDVBoxLimit = 0;
       end
       
       nDv = numel(x);
@@ -920,9 +948,37 @@ classdef fminslp < handle
         % Make sure we are within the feasible domain
         xLcur(dvNo) = max(xLcur(dvNo),xLorg(dvNo));
         xUcur(dvNo) = min(xUcur(dvNo),xUorg(dvNo));
+        
         % Take care of extremely small design changes where the bounds may be interchanged 
-        if (xLcur(dvNo) >= xUcur(dvNo)); xLcur(dvNo) = 0.9999999*xUcur(dvNo); end;
-        if (xUcur(dvNo) <= xLcur(dvNo)); xUcur(dvNo) = 1.0000001*xLcur(dvNo); end;
+        if (xLcur(dvNo) > xUcur(dvNo))
+          if minDVBoxLimit > 0
+            xLcur(dvNo) = xUcur(dvNo)-minDVBoxLimit/2;
+          else
+            xLcur(dvNo) = (1-1e-6)*xUcur(dvNo);
+          end
+        end
+        if (xUcur(dvNo) < xLcur(dvNo))
+          if minDVBoxLimit > 0
+            xUcur(dvNo) = xLcur(dvNo)-minDVBoxLimit/2;
+          else
+            xUcur(dvNo) = (1+1e-6)*xLcur(dvNo);
+          end
+        end
+        
+        % Enforce the minimum box limit size
+        if (xUcur(dvNo)-xLcur(dvNo)) < minDVBoxLimit
+          if (xUcur(dvNo) <= xUorg(dvNo)-minDVBoxLimit/2) && (xLcur(dvNo) <= xLorg(dvNo)-minDVBoxLimit/2)
+            xUcur(dvNo) = xUcur(dvNo) + minDVBoxLimit/2;
+            xLcur(dvNo) = xLcur(dvNo) - minDVBoxLimit/2;
+          elseif (xUcur(dvNo) <= xUorg(dvNo)-minDVBoxLimit)  
+            xUcur(dvNo) = xUcur(dvNo) + minDVBoxLimit;
+          elseif (xLcur(dvNo) >= xLorg(dvNo)-minDVBoxLimit)
+            xLcur(dvNo) = xLcur(dvNo) - minDVBoxLimit;
+          end
+        end
+        
+
+        
       end
     end
     
