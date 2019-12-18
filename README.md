@@ -80,6 +80,10 @@ options = fminslp.slpoptions('MoveLimit',0.01);
 		FiniteDifferenceType : 'forward'
 
 Change log
+* v1.2 
+  * Changed behavior of the adaptive move-limit scheme. Now, the minimum size of the "box"  around each design variable is twice the size of the supplied step size tolerance. This change was motivated by some linear solvers that start to drift on the limit of feasibility on linear constraints. If the move-limit box is becomes too small while this happens, the linear solver will report an infeasible solution.
+  * Internal changes to how function and constraints are evaluated. 
+  
 * v1.1
   * Changed default behaivor wrt., user supplied gradients. Now, the program assumes no user supplied gradients. Same as with fmincon.If the user has analytical gradients, these can be supplied and activated by using the two options 'SpecifyConstraintGradient' and 'SpecifyObjectiveGradient'
   * Added finite difference schemes to approximate objective and constraint gradients
