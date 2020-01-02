@@ -80,6 +80,13 @@ options = fminslp.slpoptions('MoveLimit',0.01);
 		FiniteDifferenceType : 'forward'
 
 Change log
+* v1.3
+  * Bug fix: fold was not updated with fmerit
+  * Aligned output structure with matlab's fmincon
+  * Better output messages
+  * Moved history to output structure
+  * Todo: Fix post processing or remove
+
 * v1.2 
   * Changed behavior of the adaptive move-limit scheme. Now, the minimum size of the "box"  around each design variable is twice the size of the supplied step size tolerance. This change was motivated by some linear solvers that start to drift on the limit of feasibility on linear constraints. If the move-limit box is becomes too small while this happens, the linear solver will report an infeasible solution.
   * Internal changes to how function and constraints are evaluated. 
