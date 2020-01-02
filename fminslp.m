@@ -1,8 +1,8 @@
-classdef fminslp < handle
+classdef fminslp
   
   properties(Constant)
     name = 'fminslp';
-    version = 'v1.2';
+    version = 'v1.3';
   end
 
   properties
@@ -27,13 +27,9 @@ classdef fminslp < handle
     f0 = []; % Initial, unpeanalized objective function value
     nGnl = []; % number of non-linear inequality constraints
     aFac = []; % Scaling parameter for merit function
-    lambda = []; % Lagrange variables for "Augmented Lagrange (AL) method"
     
     % Global convergence filter 
     filter = struct();
-    
-    % Iteration history
-    history = struct();
     
     % Switch
     initialized = false;
@@ -201,6 +197,16 @@ classdef fminslp < handle
       % Assume the code failed
       exitflag = -1;
       
+      
+    % Output strucutre
+    output = struct('iterations',[],...
+                    'funcCount',[],...
+                    'constrviolation',[],...
+                    'firstorderopt',[],...
+                    'message','',...
+                    'iterHistory',struct());
+                  
+      
       if strcmpi(this.options.Display,'iter')
         fprintf('*********************************************************************************************************')
         fprintf('\n \t \t \t \t \t \t fminslp optimizer with global convergence filter')
@@ -211,8 +217,8 @@ classdef fminslp < handle
       % Allocate iteration history array
       % Store function values, maximum infeasibility from non-linear
       % constraints, norm of design variable change
-      this.history.f = zeros(this.options.MaxIterations,1);
-      this.history.xnorm = zeros(this.options.MaxIterations,1);
+      output.iterHistory.f = zeros(this.options.MaxIterations,1);
+      output.iterHistory.xnorm = zeros(this.options.MaxIterations,1);
       minDVBoxLimit = 2*this.options.StepTolerance;
       
       x = this.x0(:);
@@ -236,23 +242,24 @@ classdef fminslp < handle
         ylb = zeros(this.nGnl,1);
         yub = repmat(max([gnl(:);gnleq(:);-gnleq(:);1])*1e6,[this.nGnl,1]);
         % Allocate iteration history for maximum infeasibility
-        this.history.maxInf = zeros(this.options.MaxIterations,1);
+        output.iterHistory.maxInf = zeros(this.options.MaxIterations,1);
       else
         this.nGnl = 0;
         % Assumed allocated to empty when not active
         y = [];
         ylb = [];
         yub = [];
-        this.history.maxInf = [];
       end
       
       if strcmpi(this.options.Algorithm,'AL')
         % Initialize lagrange multipliers to 1, 
         % this is nesseary such that the gradient for the y-variable
         % is at least 1 in the first iteration.
-        this.lambda = ones(this.nGnl,1);
+        lambda = ones(this.nGnl,1);
         % Update lagrange multipliers based on the initial infeasibilities
-        this.updateLambda(y);
+        lambda = this.updateLambda(y,lambda);
+      else
+        lambda = [];
       end
       
       % evaluate objective function at initial point
@@ -262,7 +269,7 @@ classdef fminslp < handle
       this.aFac = max([abs(this.f0),1]);
       
       % Evaluate merit function
-      fmerit = this.getMeritObj(x,y);
+      fmerit = this.getMeritObj(x,y,lambda);
       % Store initial value for filter
       this.filter.initF = fmerit;
       % Store "old" value for convergence check
@@ -279,7 +286,7 @@ classdef fminslp < handle
         iterNo = iterNo + 1;
         
         % evaluate gradients
-        [~,~,dfmerit] = this.getMeritObj(x,y);
+        [~,~,dfmerit] = this.getMeritObj(x,y,lambda);
         [gmerit,~,dgmerit] = this.getMeritConstraints(x,y);
         
         if ~isempty(this.A)
@@ -330,12 +337,12 @@ classdef fminslp < handle
           xU = [xUcur(:); yub];
         
           % Call optimizer
-          [xlpNew,exitflag] = this.lpSolver(dfmerit,Am,bm,Ameq,this.beq,xL,xU,[x;y]);
+          [xlpNew,exitflag,lpMessage] = this.lpSolver(dfmerit,Am,bm,Ameq,this.beq,xL,xU,[x;y]);
           
           % Terminate if solution failed
           if exitflag~=1
             optimize = false;
-            fprintf('fminslp: LP solver failed, terminating with exitflag=%i \n',exitflag)
+            output.message = sprintf([output.message,'\n ',lpMessage],'s');
             break
           end
           
@@ -349,20 +356,15 @@ classdef fminslp < handle
           deltanorm = norm(deltax);
           
           % Determine optimality Norm for convergence check
-          optimalityNorm = norm(dfmerit(1:end-this.nGnl)) + norm(yNew);
+          optimalityNorm = norm(dfmerit(1:end-this.nGnl));
           
           % evaluate constraints
           [gmerit,greal] = this.getMeritConstraints(xNew,yNew);
           
-          % Should we update lagrange multipliers
-          if strcmpi(this.options.Algorithm,'AL')
-            this.updateLambda(gmerit);
-          end
-          
           % Evaluate objective function at new point
           nFeval = nFeval + 1;
           
-          [fmerit,freal] = this.getMeritObj(xNew,yNew);
+          [fmerit,freal] = this.getMeritObj(xNew,yNew,lambda);
           
           % Determine delta for merit function
           deltaf = fOld - fmerit;
@@ -402,11 +404,31 @@ classdef fminslp < handle
           end
           
           % check for convergence
-          if (optimalityNorm <= this.options.OptimalityTolerance) || (deltanorm <=this.options.StepTolerance) || (iterNo >= this.options.MaxIterations) || (nFeval >= this.options.MaxFunctionEvaluations)
+          if (optimalityNorm <= this.options.OptimalityTolerance)
             optimize = false;
             backtrack = false;
             exitflag = 1;
-            fval = this.fun(x);
+            output.message = sprintf([output.message,'Sucessfully solve to Optimality Tolerance: <= %0.5e'],this.options.OptimalityTolerance);
+          elseif abs(deltaf)<=this.options.FunctionTolerance 
+            optimize = false;
+            backtrack = false;
+            exitflag = 1;
+            output.message = sprintf([output.message,'Sucessfully solve to Function Tolerance: <= %0.5e'],this.options.FunctionTolerance);
+          elseif (deltanorm <=this.options.StepTolerance) 
+            optimize = false;
+            backtrack = false;
+            exitflag = 1;
+            output.message = sprintf([output.message,'Sucessfully solve to Step Tolerance: <= %0.5e'],this.options.StepTolerance);
+          elseif (iterNo >= this.options.MaxIterations) 
+            optimize = false;
+            backtrack = false;
+            exitflag = 0;
+            output.message = sprintf([output.message,'Number of iterations exceeded the limit: %i'],this.options.MaxIterations);
+          elseif (nFeval >= this.options.MaxFunctionEvaluations)
+            optimize = false;
+            backtrack = false;
+            exitflag = 0;
+            output.message = sprintf([output.message,'Number of function evaluations exceeded the limit: %i'],this.options.MaxFunctionEvaluations);
           end
           
         end % Inner loop
@@ -420,14 +442,20 @@ classdef fminslp < handle
         x = xNew;
         y = yNew;
         
+        if strcmpi(this.options.Algorithm,'AL')
+          % Update lagrange multipliers based on the initial infeasibilities
+          lambda = this.updateLambda(y,lambda);
+        end
+        
         % Update "old" design
-        fOld = freal;
-        this.history.f(iterNo) = freal;
-        this.history.xnorm(iterNo) = deltanorm;
+        fOld = fmerit;
+        % Store history
         maxInf = max([greal;0]);
-        this.history.maxInf(iterNo) = maxInf;
-        this.history.nIter = iterNo;
-        this.history.nFeval = nFeval;
+         
+        output.iterHistory.f(iterNo) = freal;
+        output.iterHistory.xnorm(iterNo) = deltanorm;
+        output.iterHistory.constrviolation(iterNo) = maxInf;
+        
         
         if strcmpi(this.options.Display,'iter')
             fprintf('\t %6.4e \t \t %6.4e \t \t %6.4e \t \t %10i \t \t %10i \n' ,freal, maxInf, deltanorm, nFeval ,iterNo);
@@ -435,12 +463,20 @@ classdef fminslp < handle
         
       end % Main loop
       
-      this.history.f(iterNo+1:end)=[];
-      this.history.xnorm(iterNo+1:end)=[];
-      this.history.maxInf(iterNo+1:end)=[];
-      output.history = this.history;
+      % Prepare output
+      fval = freal;
+      
+      output.iterHistory.f(iterNo+1:end)=[];
+      output.iterHistory.xnorm(iterNo+1:end)=[];
+      output.iterHistory.constrviolation(iterNo+1:end)=[];
+      
+      output.constrviolation = maxInf;
+      output.iterations = iterNo;
+      output.funcCount = nFeval;
+      output.firstorderopt = optimalityNorm;
+      
       if strcmpi(this.options.Algorithm,'AL')
-        output.lambda = this.lambda./this.aFac;
+        output.lambda = lambda./this.aFac;
       end
       
     end % Solve function
@@ -452,23 +488,23 @@ classdef fminslp < handle
       set(0,'DefaultFigureWindowStyle','docked')
       
       % Make iteration vector
-      ivec = 1:this.history.nIter;
+      ivec = 1:this.output.iterHistorynIter;
       
       f1=figure();
-      plot(ivec,this.history.f)
+      plot(ivec,this.output.iterHistoryf)
       title('Objective')
       xlabel('Iteration Number')
       ylabel('Objective value')
       
       figure();
-      plot(ivec,this.history.xnorm)
+      plot(ivec,this.output.iterHistoryxnorm)
       title('Design change norm')
       xlabel('Iteration Number')
       yl=ylabel('Norm dx');
       set(yl,'Interpreter','none')
       
       figure();
-      plot(ivec,this.history.maxInf)
+      plot(ivec,this.output.iterHistorymaxInf)
       title('Maximum infeasibility')
       xlabel('Iteration Number')
       ylabel('-')
@@ -484,7 +520,7 @@ classdef fminslp < handle
   
   methods (Hidden = true)
     
-    function [fmerit,fval,dfmerit] = getMeritObj(this,x,y)
+    function [fmerit,fval,dfmerit] = getMeritObj(this,x,y,lambda)
       
       if nargout > 2
         if this.options.SpecifyObjectiveGradient
@@ -498,7 +534,7 @@ classdef fminslp < handle
           case 'merit'
             dy = this.aFac*(this.options.InfeasibilityPenalization+y);
           case 'al'
-            dy = this.aFac*(this.lambda+this.options.InfeasibilityPenalization*y);
+            dy = this.aFac*(lambda+this.options.InfeasibilityPenalization*y);
         end
         dfmerit = [df;dy];
       else
@@ -509,7 +545,7 @@ classdef fminslp < handle
         case 'merit'
           fmerit = fval + this.aFac*sum(y*this.options.InfeasibilityPenalization+0.5*y.^2);
         case 'al'
-          fmerit = fval + this.aFac*sum(y.*this.lambda+this.options.InfeasibilityPenalization*0.5*y.^2);
+          fmerit = fval + this.aFac*sum(y.*lambda+this.options.InfeasibilityPenalization*0.5*y.^2);
       end
 
     end
@@ -537,29 +573,24 @@ classdef fminslp < handle
       end
     end
     
-    function updateLambda(this,y)
-      this.lambda = max(this.lambda + this.options.InfeasibilityPenalization*y,1);
+    function lambda = updateLambda(this,y,lambda)
+      lambda = max(lambda + this.options.InfeasibilityPenalization*y,1);
     end
     
-    function [x,exitflag] = lpSolver(this,df,A,b,Aeq,beq,lb,ub,x)
+    function [x,exitflag,message] = lpSolver(this,df,A,b,Aeq,beq,lb,ub,x)
       % Here you can add your own solvers
       switch this.options.Solver
         
         case 'linprog' % MathWorks solver
           linprogOptions = optimoptions('linprog','Algorithm','dual-simplex','Display','off','ConstraintTolerance',this.options.StepTolerance/2);
-          [x,~, exitflag,output]= linprog(df,A,b,Aeq,beq,lb,ub,x,linprogOptions);
-          if exitflag~=1
-            fprintf('MATLAB linprog exit message: %s \n',output.message)
-          end
-          
+          [x,~, exitflag,lpOutput]= linprog(df,A,b,Aeq,beq,lb,ub,x,linprogOptions);
+          message = lpOutput.message;
         case 'clp'
           % Select open source solver from OPTI tool box (see ToolSet\BladeLib\Ext\OptiToolbox\Solvers)
           rhsLower = [-inf(size(A,1),1);beq];
           rhsUpper = [b;beq];
-          [x,~,exitflag,output] = opti_clp([],df,[A;Aeq],rhsLower,rhsUpper,lb,ub);
-          if exitflag~=1
-            fprintf('clp optimizer exit message: %s \n',output.Status)
-          end
+          [x,~,exitflag,lpOutput] = opti_clp([],df,[A;Aeq],rhsLower,rhsUpper,lb,ub);
+          message = lpOutput.Status;
         case 'glpk' % Octave lp solver
           
           % Define constraints
@@ -590,7 +621,8 @@ classdef fminslp < handle
           vartype = char(ndv,1);
           vartype(1:ndv) = 'C';
           
-          [x, ~, exitflag] = glpk (df, A, b, lb, ub, ctype, vartype);
+          [x, ~, exitflag,lpOutput] = glpk(df, A, b, lb, ub, ctype, vartype);
+          message = lpOutput.extra;
         otherwise
           error([this.name,' Unknown LP solver specified: ',this.options.Solver])
       end
@@ -786,14 +818,13 @@ classdef fminslp < handle
       p.addParameter('MaxIterations',1000,  @(x) checkEmptyOrNumericPositive(x));
       p.addParameter('InfeasibilityPenalization',1000,  @(x) checkEmptyOrNumericPositive(x));
       p.addParameter('OptimalityTolerance',1e-6,  @(x) checkEmptyOrNumericPositive(x));
-      p.addParameter('StepTolerance',1e-8,  @(x) checkEmptyOrNumericPositive(x));
+      p.addParameter('FunctionTolerance',1e-6,  @(x) checkEmptyOrNumericPositive(x));
+      p.addParameter('StepTolerance',1e-10,  @(x) checkEmptyOrNumericPositive(x));
       p.addParameter('FiniteDifferenceType','forward',  @(x) ischar(x));
       p.addParameter('FiniteDifferenceStepSize',sqrt(eps),@(x) checkNumericPositive(x));
       p.addParameter('SpecifyConstraintGradient',0,@(x) checkLogicalZeroOne(x));
       p.addParameter('SpecifyObjectiveGradient',0,@(x) checkLogicalZeroOne(x)); 
       p.addParameter('CheckGradients',0,@(x) checkLogicalZeroOne(x)); 
-      
-      
       
       % Move-limit parameters
       p.addParameter('MoveLimitMethod','adaptive',  @(x) checkEmpetyOrChar(x));
@@ -976,9 +1007,6 @@ classdef fminslp < handle
             xLcur(dvNo) = xLcur(dvNo) - minDVBoxLimit;
           end
         end
-        
-
-        
       end
     end
     
