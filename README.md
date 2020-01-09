@@ -80,6 +80,10 @@ options = fminslp.slpoptions('MoveLimit',0.01);
 		FiniteDifferenceType : 'forward'
 
 Change log
+* v1.4
+  * Code optimization
+  * Todo: Fix post processing or remove
+  
 * v1.3
   * Bug fix: fold was not updated with fmerit
   * Aligned output structure with matlab's fmincon
