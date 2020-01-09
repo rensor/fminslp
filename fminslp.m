@@ -2,7 +2,7 @@ classdef fminslp
   
   properties(Constant)
     name = 'fminslp';
-    version = 'v1.3';
+    version = 'v1.4';
   end
 
   properties
@@ -219,8 +219,11 @@ classdef fminslp
       % constraints, norm of design variable change
       output.iterHistory.f = zeros(this.options.MaxIterations,1);
       output.iterHistory.xnorm = zeros(this.options.MaxIterations,1);
+      
+      % Set minimum "box" limit around each design variables. 
       minDVBoxLimit = 2*this.options.StepTolerance;
       
+      % Load initial x value
       x = this.x0(:);
       
       % Initialize the current box constraints with upper and lower bounds.
@@ -251,6 +254,23 @@ classdef fminslp
         yub = [];
       end
       
+      % Expand linear equality constraints to account for slag variables
+      if ~isempty(this.Aeq)
+        Ameq = zeros(size(this.Aeq,1),size(this.Aeq,2)+this.nGnl);
+        Ameq(1:size(this.Aeq,1),1:size(this.Aeq,2)) = this.Aeq;
+      else
+        Ameq = [];
+      end
+      
+      if ~isempty(this.A)
+        % Assemble linear in-equality constraints, and expand design variables/columns to
+        % and account for slag variables from the non-linear in-equality constraints
+        Am = zeros(size(this.A,1)+this.nGnl,size(this.A,2)+this.nGnl); % Allocate
+        Am(1:size(this.A,1),1:size(this.A,2)) = this.A; % Load linear
+        bm = zeros(size(this.b,1)+this.nGnl,1); % Allocate
+        bm(1:size(this.b,1)) = this.b; % Load linear
+      end
+      
       if strcmpi(this.options.Algorithm,'AL')
         % Initialize lagrange multipliers to 1, 
         % this is nesseary such that the gradient for the y-variable
@@ -264,7 +284,6 @@ classdef fminslp
       
       % evaluate objective function at initial point
       this.f0  = this.fun(x);
-      
       % Get scaling factor for merit function
       this.aFac = max([abs(this.f0),1]);
       
@@ -289,35 +308,18 @@ classdef fminslp
         [~,~,dfmerit] = this.getMeritObj(x,y,lambda);
         [gmerit,~,dgmerit] = this.getMeritConstraints(x,y);
         
-        if ~isempty(this.A)
-          % Assemble linear and non-linear in-equality constraints
-          Am = zeros(size(this.A,1)+this.nGnl,size(this.A,2)+this.nGnl); % Allocate
-          Am(1:size(this.A,1),1:size(this.A,2)) = this.A; % Load linear
-          bm = zeros(size(this.b,1)+this.nGnl,1); % Allocate
-          bm(1:size(this.b,1)) = this.b; % Load linear
-          
-          if ~isempty(this.nonlcon)
-            Am(size(this.A,1)+1:end,:) = dgmerit; % Load non-linear
-            bm(size(this.b,1)+1:end) = dgmerit*[x;y]-gmerit; % Load non-linear
-          end
-        else % Only non-linear
-          if ~isempty(this.nonlcon)
-            Am = dgmerit;
-            bm = dgmerit*[x;y]-gmerit;
-          else
-            Am = [];
-            bm = [];
-          end
-        end
-        
-        % Expand linear equality constraints to account for slag variables
-        if ~isempty(this.Aeq)
-          Ameq = zeros(size(this.Aeq,1),size(this.Aeq,2)+this.nGnl);
-          Ameq(1:size(this.Aeq,1),1:size(this.Aeq,2)) = this.Aeq;
+        % Setup in-equality constraints to include non-linear parts
+        if ~isempty(this.nonlcon) && ~isempty(this.A)
+          Am(size(this.A,1)+1:end,:) = dgmerit; % Load non-linear
+          bm(size(this.b,1)+1:end) = dgmerit*[x;y]-gmerit; % Load non-linear
+        elseif ~isempty(this.nonlcon) && isempty(this.A)
+          Am = dgmerit;
+          bm = dgmerit*[x;y]-gmerit;
         else
-          Ameq = [];
+          Am = [];
+          bm = [];
         end
-        
+
         % update move-limits
         reduceSwitch = false;
         [xLcur, xUcur] = this.AdaptiveMoveLimit(x, xLcur, xUcur, this.lb, this.ub, this.options.MoveLimit ,this.options.MoveLimitReduce, this.options.MoveLimitExpand, xold1, xold2, reduceSwitch,minDVBoxLimit);
@@ -819,7 +821,7 @@ classdef fminslp
       p.addParameter('InfeasibilityPenalization',1000,  @(x) checkEmptyOrNumericPositive(x));
       p.addParameter('OptimalityTolerance',1e-6,  @(x) checkEmptyOrNumericPositive(x));
       p.addParameter('FunctionTolerance',1e-6,  @(x) checkEmptyOrNumericPositive(x));
-      p.addParameter('StepTolerance',1e-10,  @(x) checkEmptyOrNumericPositive(x));
+      p.addParameter('StepTolerance',1e-8,  @(x) checkEmptyOrNumericPositive(x));
       p.addParameter('FiniteDifferenceType','forward',  @(x) ischar(x));
       p.addParameter('FiniteDifferenceStepSize',sqrt(eps),@(x) checkNumericPositive(x));
       p.addParameter('SpecifyConstraintGradient',0,@(x) checkLogicalZeroOne(x));
