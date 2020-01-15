@@ -344,8 +344,8 @@ classdef fminslp
           % Terminate if solution failed
           if exitflag~=1
             optimize = false;
+            backtrack = false;
             output.message = sprintf([output.message,'\n ',lpMessage],'s');
-            break
           end
           
           % Split design variables
@@ -414,13 +414,18 @@ classdef fminslp
           elseif abs(deltaf)<=this.options.FunctionTolerance 
             optimize = false;
             backtrack = false;
-            exitflag = 1;
+            exitflag = 2;
             output.message = sprintf([output.message,'Sucessfully solve to Function Tolerance: <= %0.5e'],this.options.FunctionTolerance);
           elseif (deltanorm <=this.options.StepTolerance) 
             optimize = false;
             backtrack = false;
-            exitflag = 1;
+            exitflag = 3;
             output.message = sprintf([output.message,'Sucessfully solve to Step Tolerance: <= %0.5e'],this.options.StepTolerance);
+          elseif (fmerit <=this.options.ObjectiveLimit) && iterNo > 1
+            optimize = false;
+            backtrack = false;
+            exitflag = 4;
+            output.message = sprintf([output.message,'Sucessfully solve to Objective Limit: <= %0.5e'],this.options.ObjectiveLimit);            
           elseif (iterNo >= this.options.MaxIterations) 
             optimize = false;
             backtrack = false;
@@ -816,12 +821,17 @@ classdef fminslp
       p.addParameter('Algorithm','merit',  @(x) checkEmpetyOrChar(x));
       p.addParameter('Solver','linprog',  @(x) checkEmpetyOrChar(x));
       p.addParameter('Display','off',  @(x) checkEmpetyOrChar(x));
+      
+      % Convergence parameters
       p.addParameter('MaxFunctionEvaluations',1000,  @(x) checkEmptyOrNumericPositive(x));
       p.addParameter('MaxIterations',1000,  @(x) checkEmptyOrNumericPositive(x));
       p.addParameter('InfeasibilityPenalization',1000,  @(x) checkEmptyOrNumericPositive(x));
       p.addParameter('OptimalityTolerance',1e-6,  @(x) checkEmptyOrNumericPositive(x));
       p.addParameter('FunctionTolerance',1e-6,  @(x) checkEmptyOrNumericPositive(x));
       p.addParameter('StepTolerance',1e-8,  @(x) checkEmptyOrNumericPositive(x));
+      p.addParameter('ObjectiveLimit',-1e20,  @(x) isnumeric(x));
+      
+      % Gradient parameters
       p.addParameter('FiniteDifferenceType','forward',  @(x) ischar(x));
       p.addParameter('FiniteDifferenceStepSize',sqrt(eps),@(x) checkNumericPositive(x));
       p.addParameter('SpecifyConstraintGradient',0,@(x) checkLogicalZeroOne(x));
