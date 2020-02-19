@@ -601,35 +601,43 @@ classdef fminslp
         case 'glpk' % Octave lp solver
           
           % Define constraints
-          if ~isempty(A) && ~isempty(Aeq)
-            nleq = size(A,1);
-            neq = size(Aeq,1);
-            ctype = char(nleq+neq,1);
-            ctype(1:nleq) = 'U';
-            ctype(nleq+1:end) = 'S';
-            A = [A;Aeq];
-            b = [b;beq];
-          elseif ~isempty(A)
-            nleq = size(A,1);
-            ctype = char(nleq,1);
-            ctype(1:nleq) = 'U';
-          elseif ~isempty(Aeq)
-            neq = size(Aeq,1);
-            ctype = char(neq,1);
-            ctype(1:neq) = 'S';
-            A = Aeq;
-            b = beq;
-          else
-            ctype = [];
-          end
+          neq = size(Aeq,1);
+          nleq = size(A,1);
+          ctype = [repmat('U',[nleq,1]);repmat('S',[neq,1])];
+          gA = [A;Aeq];
+          gb = [b;beq];
           
           % Define variable type
           ndv = numel(df);
-          vartype = char(ndv,1);
-          vartype(1:ndv) = 'C';
-          
-          [x, ~, exitflag,lpOutput] = glpk(df, A, b, lb, ub, ctype, vartype);
-          message = lpOutput.extra;
+          vartype = repmat('C',[ndv,1]);
+          % Change default solver settings
+          gParam = struct('dual',2); % Use two-phase dual simplex, and if it fails, switch
+                                     % to the primal simplex.
+          [x, ~, exitflagOut,lpOutput] = glpk(df, gA, gb, lb, ub, ctype, vartype,1,gParam);
+          % exitflag = 1 is a success
+          % exitflag < 0 is a fail
+          if exitflagOut == 0
+            exitflag = 1;
+          else
+            % All error codes are positive from glpk
+            exitflag = -exitflagOut;
+          end
+          % Convert output status to a message
+          switch lpOutput.status
+            case 1
+              message = 'Solution status is undefined';
+            case 2
+              message = 'Solution is feasible';
+            case 3
+              message = 'Solution is infeasible';
+            case 4
+              message = 'Problem has no feasible solution';
+            case 5
+              message = 'Solution is optimal';
+            case 6
+              message = 'Problem has no unbounded solution';
+          end
+            
         otherwise
           error([this.name,' Unknown LP solver specified: ',this.options.Solver])
       end
