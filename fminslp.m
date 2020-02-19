@@ -208,10 +208,14 @@ classdef fminslp
                   
       
       if strcmpi(this.options.Display,'iter')
-        fprintf('*********************************************************************************************************')
-        fprintf('\n \t \t \t \t \t \t fminslp optimizer with global convergence filter')
-        fprintf('\n*********************************************************************************************************\n')
-        fprintf('\t %10s \t\t %10s \t \t %10s \t \t   %10s \t \t   %10s \n','f(x)','Max inf', 'Norm dx', 'nFeval','IterNo');
+        s2 = sprintf('fminslp optimizer with global convergence filter');
+        s3 = sprintf(' %10s      %10s      %10s      %10s      %10s','f(x)','Max inf', 'Norm dx', 'nFeval','IterNo');
+        nAst = length(s3);
+        s1 = repmat('*',[1,nAst]);
+        nwS = round((nAst-length(s2))/2);
+        s2center = sprintf('%s%s',repmat(' ',[1,nwS]),s2);
+        fprintf('%s\n%s\n%s\n%s\n',s1,s2center,s1,s3);
+        
       end
         
       % Allocate iteration history array
@@ -465,7 +469,7 @@ classdef fminslp
         
         
         if strcmpi(this.options.Display,'iter')
-            fprintf('\t %6.4e \t \t %6.4e \t \t %6.4e \t \t %10i \t \t %10i \n' ,freal, maxInf, deltanorm, nFeval ,iterNo);
+            fprintf(' %6.4e      %6.4e      %6.4e      %10i      %10i \n' ,freal, maxInf, deltanorm, nFeval ,iterNo);
         end
         
       end % Main loop
