@@ -208,14 +208,10 @@ classdef fminslp
                   
       
       if strcmpi(this.options.Display,'iter')
-        s2 = sprintf('fminslp optimizer with global convergence filter');
-        s3 = sprintf(' %10s      %10s      %10s      %10s      %10s','f(x)','Max inf', 'Norm dx', 'nFeval','IterNo');
-        nAst = length(s3);
-        s1 = repmat('*',[1,nAst]);
-        nwS = round((nAst-length(s2))/2);
-        s2center = sprintf('%s%s',repmat(' ',[1,nwS]),s2);
-        fprintf('%s\n%s\n%s\n%s\n',s1,s2center,s1,s3);
-        
+        fprintf('*********************************************************************************************************')
+        fprintf('\n \t \t \t \t \t \t fminslp optimizer with global convergence filter')
+        fprintf('\n*********************************************************************************************************\n')
+        fprintf('\t %10s \t\t %10s \t \t %10s \t \t   %10s \t \t   %10s \n','f(x)','Max inf', 'Norm dx', 'nFeval','IterNo');
       end
         
       % Allocate iteration history array
@@ -469,7 +465,7 @@ classdef fminslp
         
         
         if strcmpi(this.options.Display,'iter')
-            fprintf(' %6.4e      %6.4e      %6.4e      %10i      %10i \n' ,freal, maxInf, deltanorm, nFeval ,iterNo);
+            fprintf('\t %6.4e \t \t %6.4e \t \t %6.4e \t \t %10i \t \t %10i \n' ,freal, maxInf, deltanorm, nFeval ,iterNo);
         end
         
       end % Main loop
@@ -605,43 +601,35 @@ classdef fminslp
         case 'glpk' % Octave lp solver
           
           % Define constraints
-          neq = size(Aeq,1);
-          nleq = size(A,1);
-          ctype = [repmat('U',[nleq,1]);repmat('S',[neq,1])];
-          gA = [A;Aeq];
-          gb = [b;beq];
+          if ~isempty(A) && ~isempty(Aeq)
+            nleq = size(A,1);
+            neq = size(Aeq,1);
+            ctype = char(nleq+neq,1);
+            ctype(1:nleq) = 'U';
+            ctype(nleq+1:end) = 'S';
+            A = [A;Aeq];
+            b = [b;beq];
+          elseif ~isempty(A)
+            nleq = size(A,1);
+            ctype = char(nleq,1);
+            ctype(1:nleq) = 'U';
+          elseif ~isempty(Aeq)
+            neq = size(Aeq,1);
+            ctype = char(neq,1);
+            ctype(1:neq) = 'S';
+            A = Aeq;
+            b = beq;
+          else
+            ctype = [];
+          end
           
           % Define variable type
           ndv = numel(df);
-          vartype = repmat('C',[ndv,1]);
-          % Change default solver settings
-          gParam = struct('dual',2); % Use two-phase dual simplex, and if it fails, switch
-                                     % to the primal simplex.
-          [x, ~, exitflagOut,lpOutput] = glpk(df, gA, gb, lb, ub, ctype, vartype,1,gParam);
-          % exitflag = 1 is a success
-          % exitflag < 0 is a fail
-          if exitflagOut == 0
-            exitflag = 1;
-          else
-            % All error codes are positive from glpk
-            exitflag = -exitflagOut;
-          end
-          % Convert output status to a message
-          switch lpOutput.status
-            case 1
-              message = 'Solution status is undefined';
-            case 2
-              message = 'Solution is feasible';
-            case 3
-              message = 'Solution is infeasible';
-            case 4
-              message = 'Problem has no feasible solution';
-            case 5
-              message = 'Solution is optimal';
-            case 6
-              message = 'Problem has no unbounded solution';
-          end
-            
+          vartype = char(ndv,1);
+          vartype(1:ndv) = 'C';
+          
+          [x, ~, exitflag,lpOutput] = glpk(df, A, b, lb, ub, ctype, vartype);
+          message = lpOutput.extra;
         otherwise
           error([this.name,' Unknown LP solver specified: ',this.options.Solver])
       end
@@ -802,14 +790,25 @@ classdef fminslp
               [maxDiff,idx]=max(dsaDiff(:));
               [dvNo,gNo]=ind2sub(size(dsaDiff),idx);
               formatSpec = '\n \t Derivative Check Information\n Nonlinear inequality constraint derivatives: \n Maximum difference between user-supplied and finite-difference derivatives = %0.5e \n \t User-supplied constraint derivative element (%i,%i): %0.5e \n \t Finite-difference constraint derivative element (%i,%i): %0.5e \n';
-              fprintf(formatSpec,maxDiff,dvNo,gNo,dgnlUser(dvNo,gNo),dvNo,gNo,dgnlFiniteDiff(dvNo,gNo));
+              if issparse(dgnlUser)
+                userVal = full(dgnlUser(dvNo,gNo));
+              else
+                userVal = (dgnlUser(dvNo,gNo));
+              end
+              
+              fprintf(formatSpec,maxDiff,dvNo,gNo,userVal,dvNo,gNo,dgnlFiniteDiff(dvNo,gNo));
             end
             if ~isempty(dgneqUser)
               dsaDiff = abs(dgneqUser-dgneqFiniteDiff);
               [maxDiff,idx]=max(dsaDiff(:));
               [gNo,dvNo]=ind2sub(size(dsaDiff),idx);
+              if issparse(dgnlUser)
+                userVal = full(dgnlUser(dvNo,gNo));
+              else
+                userVal = (dgnlUser(dvNo,gNo));
+              end
               formatSpec = '\n \t Derivative Check Information\n Nonlinear equality constraint derivatives: \n Maximum difference between user-supplied and finite-difference derivatives = %0.5e \n \t User-supplied constraint derivative element (%i,%i): %0.5e \n \t Finite-difference constraint derivative element (%i,%i): %0.5e \n';
-              fprintf(formatSpec,maxDiff,dvNo,gNo,dgnlUser(dvNo,gNo),dvNo,gNo,dgnlFiniteDiff(dvNo,gNo));
+              fprintf(formatSpec,maxDiff,dvNo,gNo,userVal,dvNo,gNo,dgnlFiniteDiff(dvNo,gNo));
             end
           end
     end
