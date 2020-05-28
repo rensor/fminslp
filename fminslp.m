@@ -2,7 +2,7 @@ classdef fminslp
   
   properties(Constant)
     name = 'fminslp';
-    version = 'v1.4';
+    version = 'v1.5';
   end
 
   properties
@@ -219,6 +219,7 @@ classdef fminslp
       % constraints, norm of design variable change
       output.iterHistory.f = zeros(this.options.MaxIterations,1);
       output.iterHistory.xnorm = zeros(this.options.MaxIterations,1);
+      output.iterHistory.constrviolation = zeros(this.options.MaxIterations,1);
       
       % Set minimum "box" limit around each design variables. 
       minDVBoxLimit = 2*this.options.StepTolerance;
@@ -288,11 +289,15 @@ classdef fminslp
       this.aFac = max([abs(this.f0),1]);
       
       % Evaluate merit function
-      fmerit = this.getMeritObj(x,y,lambda);
+      [fmerit,freal] = this.getMeritObj(x,y,lambda);
       % Store initial value for filter
       this.filter.initF = fmerit;
       % Store "old" value for convergence check
       fOld = fmerit;
+      
+      % Initialize variables
+      maxInf = max([y;0]);
+      optimalityNorm = 0;
       
       % Set counters and switches
       nFeval = 1;
@@ -342,132 +347,134 @@ classdef fminslp
           [xlpNew,exitflag,lpMessage] = this.lpSolver(dfmerit,Am,bm,Ameq,this.beq,xL,xU,[x;y]);
           
           % Terminate if solution failed
-          if exitflag~=1
+          if exitflag==1
+            
+            % Split design variables
+            xNew = xlpNew(1:this.nDV);
+            yNew = xlpNew(this.nDV+1:end);
+
+            % Determine design deltas
+            deltaxy = xlpNew-[x;y];
+            deltax = xNew - x;
+            deltanorm = norm(deltax);
+
+            % Determine optimality Norm for convergence check
+            optimalityNorm = norm(dfmerit(1:end-this.nGnl));
+
+            % evaluate constraints
+            [gmerit,greal] = this.getMeritConstraints(xNew,yNew);
+
+            % Evaluate objective function at new point
+            nFeval = nFeval + 1;
+
+            [fmerit,freal] = this.getMeritObj(xNew,yNew,lambda);
+
+            % Determine delta for merit function
+            deltaf = fOld - fmerit;
+
+            % Determine maximum infeasibility for current design
+            this.filter.h = max([gmerit;0]); 
+            % Store objective function value for current design
+            this.filter.f = fmerit/this.filter.initF;
+
+            % Evaluate current (h,f) point against the convergence filter
+            [this.filter] = this.EvaluateCurrentDesignPointToFilter(this.filter);
+
+            % Assume that we don't want to update the convergence filter
+            AddToFilter = false;
+            if (this.filter.PointAcceptedByFilter)
+              % Determine Delta values for filter checks
+              deltaL = -dfmerit'*deltaxy;
+              % Check if we should add accept the current point
+              if ( (deltaf<this.filter.sigma*deltaL) && (deltaL>0.0) )
+                % Not accepted
+                reduceSwitch = true;
+              else
+                % Accepted
+                reduceSwitch = false;
+                backtrack = false;
+                % Check if we should but the new point (h,f) into the filter
+                if(this.filter.h > 0.0)
+                  AddToFilter = true;
+                end
+              end
+            else
+              reduceSwitch = true;
+            end
+
+            if reduceSwitch
+              [xLcur, xUcur] = this.AdaptiveMoveLimit(x, xLcur, xUcur,this.lb, this.ub, this.options.MoveLimit ,this.options.MoveLimitReduce, this.options.MoveLimitExpand, xold1, xold2, reduceSwitch,minDVBoxLimit);
+            end
+
+            % check for convergence
+            if (optimalityNorm <= this.options.OptimalityTolerance)
+              optimize = false;
+              backtrack = false;
+              exitflag = 1;
+              output.message = sprintf([output.message,'Sucessfully solve to Optimality Tolerance: <= %0.5e'],this.options.OptimalityTolerance);
+            elseif abs(deltaf)<=this.options.FunctionTolerance 
+              optimize = false;
+              backtrack = false;
+              exitflag = 2;
+              output.message = sprintf([output.message,'Sucessfully solve to Function Tolerance: <= %0.5e'],this.options.FunctionTolerance);
+            elseif (deltanorm <=this.options.StepTolerance) 
+              optimize = false;
+              backtrack = false;
+              exitflag = 3;
+              output.message = sprintf([output.message,'Sucessfully solve to Step Tolerance: <= %0.5e'],this.options.StepTolerance);
+            elseif (fmerit <=this.options.ObjectiveLimit) && iterNo > 1
+              optimize = false;
+              backtrack = false;
+              exitflag = 4;
+              output.message = sprintf([output.message,'Sucessfully solve to Objective Limit: <= %0.5e'],this.options.ObjectiveLimit);            
+            elseif (iterNo >= this.options.MaxIterations) 
+              optimize = false;
+              backtrack = false;
+              exitflag = 0;
+              output.message = sprintf([output.message,'Number of iterations exceeded the limit: %i'],this.options.MaxIterations);
+            elseif (nFeval >= this.options.MaxFunctionEvaluations)
+              optimize = false;
+              backtrack = false;
+              exitflag = 0;
+              output.message = sprintf([output.message,'Number of function evaluations exceeded the limit: %i'],this.options.MaxFunctionEvaluations);
+            end
+          else
+            % LP optimizer failed, exit with grace
             optimize = false;
             backtrack = false;
             output.message = sprintf([output.message,'\n ',lpMessage],'s');
           end
-          
-          % Split design variables
-          xNew = xlpNew(1:this.nDV);
-          yNew = xlpNew(this.nDV+1:end);
-          
-          % Determine design deltas
-          deltaxy = xlpNew-[x;y];
-          deltax = xNew - x;
-          deltanorm = norm(deltax);
-          
-          % Determine optimality Norm for convergence check
-          optimalityNorm = norm(dfmerit(1:end-this.nGnl));
-          
-          % evaluate constraints
-          [gmerit,greal] = this.getMeritConstraints(xNew,yNew);
-          
-          % Evaluate objective function at new point
-          nFeval = nFeval + 1;
-          
-          [fmerit,freal] = this.getMeritObj(xNew,yNew,lambda);
-          
-          % Determine delta for merit function
-          deltaf = fOld - fmerit;
-          
-          % Determine maximum infeasibility for current design
-          this.filter.h = max([gmerit;0]); 
-          % Store objective function value for current design
-          this.filter.f = fmerit/this.filter.initF;
-          
-          % Evaluate current (h,f) point against the convergence filter
-          [this.filter] = this.EvaluateCurrentDesignPointToFilter(this.filter);
-          
-          % Assume that we don't want to update the convergence filter
-          AddToFilter = false;
-          if (this.filter.PointAcceptedByFilter)
-            % Determine Delta values for filter checks
-            deltaL = -dfmerit'*deltaxy;
-            % Check if we should add accept the current point
-            if ( (deltaf<this.filter.sigma*deltaL) && (deltaL>0.0) )
-              % Not accepted
-              reduceSwitch = true;
-            else
-              % Accepted
-              reduceSwitch = false;
-              backtrack = false;
-              % Check if we should but the new point (h,f) into the filter
-              if(this.filter.h > 0.0)
-                AddToFilter = true;
-              end
-            end
-          else
-            reduceSwitch = true;
-          end
-          
-          if reduceSwitch
-            [xLcur, xUcur] = this.AdaptiveMoveLimit(x, xLcur, xUcur,this.lb, this.ub, this.options.MoveLimit ,this.options.MoveLimitReduce, this.options.MoveLimitExpand, xold1, xold2, reduceSwitch,minDVBoxLimit);
-          end
-          
-          % check for convergence
-          if (optimalityNorm <= this.options.OptimalityTolerance)
-            optimize = false;
-            backtrack = false;
-            exitflag = 1;
-            output.message = sprintf([output.message,'Sucessfully solve to Optimality Tolerance: <= %0.5e'],this.options.OptimalityTolerance);
-          elseif abs(deltaf)<=this.options.FunctionTolerance 
-            optimize = false;
-            backtrack = false;
-            exitflag = 2;
-            output.message = sprintf([output.message,'Sucessfully solve to Function Tolerance: <= %0.5e'],this.options.FunctionTolerance);
-          elseif (deltanorm <=this.options.StepTolerance) 
-            optimize = false;
-            backtrack = false;
-            exitflag = 3;
-            output.message = sprintf([output.message,'Sucessfully solve to Step Tolerance: <= %0.5e'],this.options.StepTolerance);
-          elseif (fmerit <=this.options.ObjectiveLimit) && iterNo > 1
-            optimize = false;
-            backtrack = false;
-            exitflag = 4;
-            output.message = sprintf([output.message,'Sucessfully solve to Objective Limit: <= %0.5e'],this.options.ObjectiveLimit);            
-          elseif (iterNo >= this.options.MaxIterations) 
-            optimize = false;
-            backtrack = false;
-            exitflag = 0;
-            output.message = sprintf([output.message,'Number of iterations exceeded the limit: %i'],this.options.MaxIterations);
-          elseif (nFeval >= this.options.MaxFunctionEvaluations)
-            optimize = false;
-            backtrack = false;
-            exitflag = 0;
-            output.message = sprintf([output.message,'Number of function evaluations exceeded the limit: %i'],this.options.MaxFunctionEvaluations);
-          end
-          
         end % Inner loop
         
-        % Does the new point(h,f) qualify to be added to the filter?
-        if (AddToFilter)
-          [ this.filter ] = this.UpdateFilter(this.filter, this.filter.h, this.filter.f);
+        if optimize
+          % Does the new point(h,f) qualify to be added to the filter?
+          if (AddToFilter)
+            [ this.filter ] = this.UpdateFilter(this.filter, this.filter.h, this.filter.f);
+          end
+
+          % Update design variables
+          x = xNew;
+          y = yNew;
+
+          if strcmpi(this.options.Algorithm,'AL')
+            % Update lagrange multipliers based on the initial infeasibilities
+            lambda = this.updateLambda(y,lambda);
+          end
+
+          % Update "old" design
+          fOld = fmerit;
+          % Store history
+          maxInf = max([greal;0]);
+
+          output.iterHistory.f(iterNo) = freal;
+          output.iterHistory.xnorm(iterNo) = deltanorm;
+          output.iterHistory.constrviolation(iterNo) = maxInf;
+
+
+          if strcmpi(this.options.Display,'iter')
+              fprintf('\t %6.4e \t \t %6.4e \t \t %6.4e \t \t %10i \t \t %10i \n' ,freal, maxInf, deltanorm, nFeval ,iterNo);
+          end
         end
-        
-        % Update design variables
-        x = xNew;
-        y = yNew;
-        
-        if strcmpi(this.options.Algorithm,'AL')
-          % Update lagrange multipliers based on the initial infeasibilities
-          lambda = this.updateLambda(y,lambda);
-        end
-        
-        % Update "old" design
-        fOld = fmerit;
-        % Store history
-        maxInf = max([greal;0]);
-         
-        output.iterHistory.f(iterNo) = freal;
-        output.iterHistory.xnorm(iterNo) = deltanorm;
-        output.iterHistory.constrviolation(iterNo) = maxInf;
-        
-        
-        if strcmpi(this.options.Display,'iter')
-            fprintf('\t %6.4e \t \t %6.4e \t \t %6.4e \t \t %10i \t \t %10i \n' ,freal, maxInf, deltanorm, nFeval ,iterNo);
-        end
-        
       end % Main loop
       
       % Prepare output
@@ -487,40 +494,6 @@ classdef fminslp
       end
       
     end % Solve function
-    
-    function postprocess(this)
-      % Save current "default" window style
-      defaultWindowStyle=get(0,'DefaultFigureWindowStyle');
-      % Set new window style to docked
-      set(0,'DefaultFigureWindowStyle','docked')
-      
-      % Make iteration vector
-      ivec = 1:this.output.iterHistorynIter;
-      
-      f1=figure();
-      plot(ivec,this.output.iterHistoryf)
-      title('Objective')
-      xlabel('Iteration Number')
-      ylabel('Objective value')
-      
-      figure();
-      plot(ivec,this.output.iterHistoryxnorm)
-      title('Design change norm')
-      xlabel('Iteration Number')
-      yl=ylabel('Norm dx');
-      set(yl,'Interpreter','none')
-      
-      figure();
-      plot(ivec,this.output.iterHistorymaxInf)
-      title('Maximum infeasibility')
-      xlabel('Iteration Number')
-      ylabel('-')
-      
-      % Jump back to figure 1
-      figure(f1)
-      % Restore default window style
-      set(0,'DefaultFigureWindowStyle',defaultWindowStyle)
-    end
     
   end % methods
   
