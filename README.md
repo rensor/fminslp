@@ -80,6 +80,10 @@ options = fminslp.slpoptions('MoveLimit',0.01);
 		FiniteDifferenceType : 'forward'
 
 Change log
+* v1.5
+  * In case of the LP solver failing to converge (exitflag~=1), the exit behavior is now more graceful i.e,. no crash.
+  * Removed old post process function.
+
 * v1.4
   * Code optimization
   * Todo: Fix post processing or remove
